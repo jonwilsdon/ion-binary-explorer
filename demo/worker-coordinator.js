@@ -128,50 +128,20 @@ let topLevelWorker = new Worker('top-level-worker.js');
 topLevelWorker.onmessage = (event) => {
   switch (event.data.action) {
     case 'topLevelSlice':
-      console.log(`worker-coordinator topLevelSlice ${JSON.stringify(event.data)}`);
       let bytesRead = event.data.topLevelOffsets[event.data.topLevelOffsets.length - 1] - event.data.offsetInFile;
-      //addTopLevelOffsets(event.data.topLevelOffsets);
+      postMessage({'action': 'topLevelSliceCompleted', 'bytesRead': bytesRead});
+      addTopLevelOffsets(event.data.topLevelOffsets);
       addSymbolTableOffsets(event.data.symbolTableOffsets);
       if (event.data.contextOffsets.length > 0) {
         addContextOffsets(event.data.contextOffsets);
       }
 
-      // add symbol tables
-      for (let j = 0; j < event.data.symbolTables.length; ++j) {
-        if (event.data.symbolTables[j].append === false) {
-          addSymbolTable(event.data.symbolTables[j]);
-        }
-        stats.addSymbolTable(event.data.symbolTables[j]);
-      }
-
-      // add symbols
-      let symbolsToAdd = event.data.symbolsToAdd;
-      
-      for (let j = 0; j < symbolsToAdd.length; ++j) {
-        let symbolTable = getSymbolTable(symbolsToAdd[j].position+event.data.offsetInFile);
-        if (symbolTable !== null) {
-          let symbolID = symbolTable.addSymbol(symbolsToAdd[j].symbolString, 
-                                              symbolsToAdd[j].position+event.data.offsetInFile);
-        } else {
-          // TODO: ERROR - no symbol table
-        }
-      }
-
-      let symbols = [];
-      let offsets = [];
-      for (let i = 0; i < symbolTables.length; ++i) {
-        symbols.push(symbolTables[i].table.symbols);
-        offsets.push(symbolTables[i].table.meta);
-      }
-      postMessage({'action': 'topLevelSliceCompleted', 'bytesRead': bytesRead, 'symbolTables': symbols, 'symbolOffsets': offsets});
-
       // At the first slice and there are more bytes than the first inspect pass will read
-      if (event.data.offsetInFile === 0) {
-        //  &&
-        //  event.data.topLevelOffsets[event.data.topLevelOffsets.length-1] > INSPECT_BYTES_TO_BUFFER) {
-        //let firstOffsetToRead = findNearestTopLevelOffset(INSPECT_BYTES_TO_BUFFER);
-        //readerSliceOffsets.unshift(firstOffsetToRead);
-        readerSliceOffsets.unshift(0);
+      if (event.data.offsetInFile === 0 &&
+          event.data.topLevelOffsets[event.data.topLevelOffsets.length-1] > INSPECT_BYTES_TO_BUFFER) {
+        let firstOffsetToRead = findNearestTopLevelOffset(INSPECT_BYTES_TO_BUFFER);
+        //workerOffsets.unshift({"offset":firstOffsetToRead});
+        readerSliceOffsets.unshift(firstOffsetToRead);
       }
 
       if (event.data.atEnd === true) {
@@ -182,36 +152,23 @@ topLevelWorker.onmessage = (event) => {
 
         topLevelReaderDone = true;
         bsr.setBufferSize(bytesToBuffer);
-        //checkReaderWorkers();
+        checkReaderWorkers();
 
       } else {
         // next set of top level values
-        let offsetToStart;
-        let options = {};
-        if (event.data.longElementOffset !== null) {
-          offsetToStart = event.data.longElementOffset;
-          options.inLargeContainer = true;
-          options.longElementStack = event.data.longElementStack;
-        } else {
-          offsetToStart = event.data.topLevelOffsets[event.data.topLevelOffsets.length-1];
-        }
+        let offsetToStart = event.data.topLevelOffsets[event.data.topLevelOffsets.length-1];
         let context = contextForOffset(offsetToStart);
         readerSliceOffsets.push(offsetToStart);
-        options.context = context;
 
         // read the next buffer and then send that buffer to the top-level-worker to read all
         // top-level values in the file
-        //                      +- minimum bytes needed (bvm size)
-        //                      |  +- offset to start
-        //                      V  v
+        //             +- minimum bytes needed (bvm size)
+        //             |  +- offset to start
+        //             V  v
         bsr_toplevel.fillBuffer(4, offsetToStart).then(value => {
           let buf = bsr_toplevel.biBuffer;
-          sendBufferToWorker(topLevelWorker, buf, offsetToStart, options);
+          sendBufferToWorker(topLevelWorker, buf, offsetToStart, {'context': context});
         });
-      }
-
-      if (availableWorkers.length > 0) {
-        //checkReaderWorkers(event.data.offsetInFile, event.data.buffer);
       }
       break;
     default:
@@ -358,15 +315,16 @@ function createReaderWorkers(numWorkers, workerSize) {
 createReaderWorkers(numWorkers, bytesToBuffer);
 
 function checkReaderWorkers(offsetToStart, buffer) {
-  //if (topLevelReaderDone === false) {
-  //  return;
-  //}
+  if (topLevelReaderDone === false) {
+    return;
+  }
   if (availableWorkers.length > 0 && readerSliceOffsets.length > 0) {
     let readerWorker;
     let sliceOffset;
     let context;
     if (offsetToStart !== undefined && buffer !== undefined) {
       readerWorker = availableWorkers.shift();
+      //sliceOffset = readerSliceOffsets.pop();
       sliceOffset = readerSliceOffsets.shift(); 
       if (sliceOffset !== offsetToStart) {
         throw new Error(`worker-coordinator: expected sliceOffset ${sliceOffset} to equal offsetToStart ${offsetToStart}`);
@@ -457,14 +415,7 @@ onmessage = (event) => {
       // notify the main thread of the size of the file
       postMessage({'action': 'loaded', 'fileStats': fileStats});
 
-      bsr_toplevel.setBufferSize(bytesToBuffer);
-      bsr_toplevel.fillBuffer(4, 0).then(value => {
-        let buf = bsr_toplevel.biBuffer;
-        sendBufferToWorker(topLevelWorker, buf, 0, {"context": "unknown"});
-      });
-
       // start worker-reader
-      /*
       bsr.setBufferSize(INSPECT_BYTES_TO_BUFFER);
       bsr.fillBuffer(4, 0).then(value => {
         let buf = bsr.biBuffer;
@@ -475,7 +426,7 @@ onmessage = (event) => {
           'validateBVMExists': true
         };
         sendBufferToWorker(readerWorker, buf, 0, options);
-      });*/
+      });
       break;
     // takes an array of symbol ids
     case 'exploreSymbols':

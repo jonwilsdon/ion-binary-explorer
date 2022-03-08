@@ -49,8 +49,7 @@ function readAll(buffer, offset, options) {
   elementStack = [];
   inSymbolTableDefinition = false;
   inSymbolList = false;
-  // depth > 10 is not common
-  for (let i = 0; i < 10; ++i) {
+  for (let i = 0; i < 100; ++i) {
     elementStack.push(new IonElement(0,0, readerSize, null, null, null));
   }
   currentElement = elementStack[0];
@@ -95,14 +94,67 @@ function readAll(buffer, offset, options) {
     stats.trackElement(currentElement, bufferOffset);
 
     if (currentElement.type === IonTypes["bvm"]) {
+      postMessage({
+        'action': 'BVMValidated',
+        'majorVersion': currentElement.majorVersion,
+        'minorVersion': currentElement.minorVersion,
+        'offset': currentElement.positionInStream
+      });
       context = `${currentElement.majorVersion}_${currentElement.minorVersion}`;
+
+      symbolTable = {
+        'position': currentElement.positionInStream,
+        'shared': false,
+        'append': false,
+        'numSymbols': 0
+      };
+      if (suppressSymbolTables === false) {
+        symbolTables.push(symbolTable);
+      }
     }
 
     if (currentElement.isLocalSymbolTable === true || currentElement.isSharedSymbolTable === true) {
       inSymbolTableDefinition = true;
+      symbolTable = {
+                      'position': currentElement.positionInStream,
+                      'shared': currentElement.isSharedSymbolTable,
+                      'append': false,
+                      'numSymbols': 0
+                    };
+      if (suppressSymbolTables === false ) {
+        symbolTables.push(symbolTable);
+      }
     }
 
     if (inSymbolTableDefinition === true) {
+      // check the field name, see if it is 'symbols'
+      if (currentElement.depth === 1 && currentElement.fieldNameSymbolID === 7) {
+        inSymbolList = true;
+      }
+      // check the field name, see if it is 'imports'
+      if (currentElement.depth === 1 && currentElement.fieldNameSymbolID === 6) {
+        // check the value, see if it is $ion_symbol_table
+        if (currentElement.type === IonTypes["symbol"] && currentElement.bytePositionOfRepresentation !== null &&
+            utilities.readScalarFromElement(currentElement, scalarReader) === 3) {
+          if (symbolTable.append === true || symbolTable.shared === true) {
+            // TODO: error, multiple imports
+          }
+          symbolTable.append = true;
+        } else {
+          if (symbolTable.append === true || symbolTable.shared === true) {
+            // TODO: error, multiple imports
+          }
+          symbolTable.shared = true;
+          // TODO: Add handling of shared symbol table here
+        }
+      // TODO: handle max_id
+      } else if (currentElement.depth === 2 && inSymbolList === true && currentElement.type === IonTypes["string"]) {
+        if (suppressSymbolTables === false) {
+          let symbolString = utilities.readScalarFromElement(currentElement, scalarReader);
+          symbolTable.numSymbols++;
+          symbolsToAdd.push({ 'symbolString': symbolString, 'position': currentElement.positionInStream});
+        }
+      }
     }
 
     if (currentElement.fieldNameSymbolID !== undefined) {
@@ -155,10 +207,6 @@ function readAll(buffer, offset, options) {
     if (currentElement.isContainer && !currentElement.isNull && currentElement.containsElement !== null && 
         currentElement.length !== 0) {
       let elemDef = currentElement.containsElement;
-      // resize elementStack if necessary
-      while (elemDef[1] >= elementStack.length) {
-        elementStack.push(new IonElement(0,0, readerSize, null, null, null));
-      }
       currentElement = elementStack[elemDef[1]];
       currentElement.repurpose(elemDef[0], elemDef[1],
                                elemDef[2], elemDef[3],

@@ -1070,7 +1070,6 @@
               passOneBytesRead += event.data.bytesRead;
               passOnePercent = ((passOneBytesRead/bytesInFile) * 100).toFixed(1);
               list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
-              displaySymbolTables(event.data.symbolTables, event.data.symbolOffsets);
               break;
             case 'topLevelValuesRead':
               passOnePercent = 100;
@@ -1087,6 +1086,7 @@
                 passTwoPercent = ((passTwoBytesRead/bytesInFile) * 100).toFixed(1);
                 list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
                 displayStats(event.data.stats);
+                displaySymbolTables(event.data.symbolTables, event.data.symbolOffsets);
               }
               break;
             case 'workerReaderTiming':
