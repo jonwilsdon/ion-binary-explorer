@@ -1,0 +1,101 @@
+--
+src/core
+  ByteBufferReader => extends ByteBuffer
+  ByteReader => readVarUInt, readUInt, readVarInt, readInt, nextByte
+  IonElement => positionInStream, depth, bytesRemainingAtDepth, container, containerType, previous
+  IonTypes => enum, isContainer, isScalar, nameFromType
+  ReaderUtilities => just uses ScalarValueReader
+  ScalarValueReader => readInt, readNegativeInt, readFloat, readDecimal, readTimestamp, readSymbol, readString, readClob, readBlob
+  SymbolTable
+  TypeDescriptorReader => array of type descriptors, readTypeAndLength, readFieldName
+
+src/analyzer
+  Inspector => representation + representation nibble details
+  StructuralAnalyzer => stats array
+
+browser/
+  bite.js => defines what to include in combined bite.js
+    ByteBufferReader
+    ByteReader
+    ByteSliceReader
+    IonElement
+    IonTypes
+    ReaderUtilities
+    ScalarValueReader
+    SymbolTable
+    TypeDescriptorReader
+    Analyzer
+    Inspector
+  ByteSliceReader => uses FileReader, readAsArrayBuffer, slice
+
+www/
+  binaryTest.html
+  top-level-worker => reads top level values, (and symbol tables)
+  worker-coordinator => central web worker, pool of worker-readers
+  worker-reader => goes through every value, stats, representations
+
+
+src/core + src/analyzer + browser/ => bite.js
+
+Flow:
+binaryTest=>
+  worker-coordinator=>
+    ByteSliceReader
+    top-level-worker=>
+      IonElement=>
+        TypeDescriptorReader
+    <=SymbolTable (updated)
+  <=SymbolTable
+    worker-reader=>
+      IonElement=>
+        TypeDescriptorReader
+    <=Analyzer (stats)
+  <===Inspector=>
+        ScalarValueReader
+  <=Analyzer (stats)
+        
+┏━━━━━━━━━━┓
+┃binaryTest┃◂────────┐
+┗━━━━━━━━━━┛         │ 
+ │ ┏━━━━━━━━━━━━━━━━━━┓
+ ╰▸┃worker-coordinator┃
+   ┗━━━━━━━━━━━━━━━━━━┛
+    ├▸ ByteSliceReader
+    │ ┏━━━━━━━━━━━━━━━━┓
+    ├▸┃top-level-worker┃
+    │ ┗━━━━━━━━━━━━━━━━┛
+    │   ├▸ IonElement
+    │   │   ╰▸ TypeDescriptorReader
+    │   ╰▸ SymbolTable
+    ├▸ SymbolTable ◂┘
+    │ ┏━━━━━━━━━━━━━┓
+    ├─┃worker-reader┃
+    │ ┗━━━━━━━━━━━━━┛
+    │   ├▸ IonElement
+    │   ├▸ Inspector
+    │   │       ◌◂┘
+    │   ├▸ Analyzer
+    ╰▸ Analyzer ◂┘
+
+Current status:
+decimal printing/max_id/shared symbol tables in progress
+web component: DisplayTabs
+web component: IonElement
+
+Functionality:
+can return null if incomplete buffer for a value
+nibbles + representation
+tracks stats (soon symbol usage)
+multiple workers
+give info/errors on not widely support or potential non-optimal
+multiple bvms / contexts
+uses BigInt
+
+Future functionality:
+convert from text (using ion-js) in shared worker
+save as text
+"binary builder" to create binary files
+error recovery
+sort tables (web component)
+infinite scroll
+Ion 1.1 support

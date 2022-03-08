@@ -1,0 +1,1192 @@
+<html>
+  <head>
+    <title>Ion Binary Explorer</title>
+    <!--<link href="http://fonts.cdnfonts.com/css/menlo" rel="stylesheet">-->
+  </head>
+  <body>
+    <style>
+      #dropzone {
+        border: 2px dashed #bbb;
+        border-radius: 5px;
+        padding: 25px;
+        text-align: center;
+        color: #bbb;
+        font-size: 18px;
+      }
+
+      fieldset {
+        border: 0.2em solid #000;
+        max-width: 100%;
+      }
+
+      legend {
+        background: #000;
+        font-size: 1.3em;
+        color: #fff;
+        font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif;
+        padding: 0.3em;
+      }
+    </style>
+
+    <template id="display-tabs-template">
+      <style>
+        :host {
+          display: block;
+          margin-top: 0.5em;
+        }
+        :host([hidden]) {
+          display: none;
+        }
+        .tab-button {
+          border: 0.2em solid #000;
+          border-bottom: 0;
+          cursor: pointer;
+          width: 10em;
+        }
+        .tab-button[disabled] {
+          cursor: not-allowed;
+        }
+        .active {
+          background-color: #000;
+          color: #fff;
+          font-weight: 900;
+        }
+      </style>
+    </template>
+
+    <template id="ion-parsed-binary-element-template">
+      <style>
+        :host {
+          display: block;
+        }
+        :host([hidden]) {
+          display: none;
+        }
+        p {
+          color: white;
+          background-color: #666;
+          padding: 5px;
+        }
+        pre {
+          margin: 0;
+          font-family: Menlo, monospace;
+          font-size: 0.8rem;
+        }
+        .hidden {
+          display: none;
+        }
+        .container {
+          margin-bottom: 1em;
+        }
+      </style>
+        <div class="container" id="container">
+          <pre><span name="exploreBits" id="slot-explore-bits" class="hidden"></span></pre>
+          <pre><span name="exploreRaw" id="slot-explore-raw"></span></pre>
+          <pre><span name="flattenedRepresentation" id="slot-flattened-representation"></span></pre>
+          <pre><span name="exploreRepresentation" id="slot-explore-representation" class="hidden"></span></pre>
+          <pre><span name="containersClosed" id="slot-containers-closed" class="hidden"></span></pre>
+        </div>
+    </template>
+
+    <div style="max-width: 100%;">
+      <div style="position: sticky; top: 0; background: #fff;">
+        <div style="margin-bottom: 5px;">
+          <label for="num_workers">number of workers:</label><input type="text" id="txt-numWorkers" value="3" size="2"></input>
+          <label for="worker_size">worker size:</label><input type="text" id="txt-workerSize" value="35000000" size="10"></input>
+          <label for="track_stats">track stats:</label><input type="checkbox" id="ckb-trackStats" checked disabled></input>
+          <br/>
+          <input type="button" id="btn-reset" value="reset"></input> 
+          <input type="button" id="btn-toggleExploring" value="toggleExploring"></input>
+          <label for="jump_to_offset">jump to offset:</label><input type="text" id="txt-jumpToOffset" value="0" size="10"></input>
+        </div>
+        <display-tabs id="parseDetailTabs"></display-tabs>
+        <fieldset style="padding-bottom: 0; margin-bottom: 0;">
+          <legend id="filename">file.10n</legend>
+          <output id="list"></output>
+          <display-tabs id="fileDetailTabs"></display-tabs>
+        </fieldset>
+      </div>
+      <div>
+        <fieldset style="border-top: 0;">
+          <div style="max-width: 100%">
+            <div id="dropzone">Drop file here</div>
+            <span id="textToDisplay"></span>
+            <pre style="font-family: Menlo, monospace; font-size: 0.8rem;"><span id="statsToDisplay"></span></pre>
+            <pre style="font-family: Menlo, monospace; font-size: 0.8rem;"><span id="symbolTablesToDisplay"></span></pre>
+          </div>
+          <div id="content" style="word-wrap: anywhere;"></div>
+        </fieldset>
+      </div>
+    </div>
+
+    <script>
+      class DisplayTabs extends HTMLElement {
+
+        #buttons = [];
+        #ids = [];
+        #active = null;
+
+        constructor() {
+          super();
+          let template = document.getElementById('display-tabs-template').content;
+
+          const shadowRoot = this.attachShadow({mode: 'open'});
+          shadowRoot.appendChild(template.cloneNode(true));
+        }
+
+        addButton = (title, idToControl) => {
+          const inputButton = document.createElement('input');
+          inputButton.value = title;
+          inputButton.type = "button";
+          inputButton.classList.add("tab-button");
+          this.shadowRoot.appendChild(inputButton);
+
+          let id = document.getElementById(idToControl);
+          this.#ids.push(id);
+          let buttonID = this.#buttons.push(inputButton)-1;
+          this.setActive(buttonID);
+
+          inputButton.addEventListener('click', (e) => {
+            this.setActive(buttonID);
+          }, false);
+        };
+
+        setActive = (buttonId) => {
+          let button = this.#buttons[buttonId];
+          if (button.classList.contains("active") === true && this.#active === buttonId) {
+            // already active
+            return;
+          }
+
+          if (this.#active !== null) {
+            this.setInactive(this.#active);
+          }
+
+          let id = this.#ids[buttonId];
+          this.#active = buttonId;
+          button.classList.add("active");
+          id.removeAttribute("hidden");
+        };
+
+        setInactive = (buttonId) => {
+          let button = this.#buttons[buttonId];
+          if (button.classList.contains("active") === false && this.#active !== buttonId) {
+            // already inactive
+            return;
+          }
+
+          let id = this.#ids[buttonId];
+          button.classList.remove("active");
+          id.setAttribute("hidden", "true");
+        };
+
+        enableAll = () => {
+          for (let i = 0; i < this.#buttons.length; ++i) {
+            let button = this.#buttons[i];
+            button.removeAttribute("disabled");
+          }
+        };
+
+        disableAll = () => {
+          for (let i = 0; i < this.#buttons.length; ++i) {
+            let button = this.#buttons[i];
+            button.setAttribute("disabled", "true");
+          }
+        };
+      }
+      class IonElement extends HTMLElement {
+
+        #thickLines = {
+          'vertical': '┃',
+          'horizontal': '━',
+          'downAndRight': '┏',
+          'downAndLeft': '┓',
+          'upAndRight': '┗',
+          'upAndLeft': '┛',
+          'verticalAndRight': '┣'
+        };
+        #thinLines = {
+          'vertical': '│',
+          'horizontal': '─',
+          'downAndRight': '┌',
+          'downAndLeft': '┐',
+          'upAndRight': '└',
+          'upAndLeft': '┘',
+          'verticalAndRight': '├'
+        };
+        #lineWeight;
+        #nibbleStruct;
+        #showDetails = false;
+
+        displayElement = (exploreOffset, exploreDepth, exploreNibbles, exploreBits, exploreRepresentation, preamble,
+                          preamble_depth, flattenedRepresentation, containersClosed) => {
+          let container = this.shadowRoot.getElementById('container');
+          if (exploreOffset === undefined) {
+            container.classList.add('hidden');
+          } else {
+            container.classList.remove('hidden');
+          }
+          
+          let exploreRawEl = this.shadowRoot.getElementById('slot-explore-raw');
+          let exploreBitsEl = this.shadowRoot.getElementById('slot-explore-bits');
+          let exploreRepresentationEl = this.shadowRoot.getElementById('slot-explore-representation');
+          let flattenedRepresentationEl = this.shadowRoot.getElementById('slot-flattened-representation');
+          let containersClosedEl = this.shadowRoot.getElementById('slot-containers-closed');
+          exploreRawEl.innerText = exploreOffset + ' ' + exploreDepth + ' ' + preamble_depth + exploreNibbles;
+          exploreBitsEl.innerText = exploreBits;
+          exploreRepresentationEl.innerText = exploreRepresentation;
+          if (flattenedRepresentation !== undefined) {
+            flattenedRepresentationEl.innerText = preamble + preamble_depth + flattenedRepresentation;
+          }
+          if (containersClosed !== undefined) {
+            containersClosedEl.classList.remove('hidden');
+            containersClosedEl.innerText = containersClosed;
+          } else {
+            containersClosedEl.classList.add('hidden');
+          }
+        }
+
+        toggleExplore = () => {
+          this.showExplore = !this.#showDetails;
+        }
+
+        static get observedAttributes() {
+          return ['data-text', 'showExplore'];
+        }
+
+        constructor() {
+          // Always call super first in constructor
+          super();
+          
+          const template = document.getElementById('ion-parsed-binary-element-template').content;
+
+          // Create a shadow root
+          this.attachShadow({mode: 'open'}); // sets and returns 'this.shadowRoot'
+
+          //const wrapper = document.createElement('span');
+          //wrapper.setAttribute('class', 'wrapper');
+
+          // Take attribute content and put it inside the info span
+          //wrapper.textContent = this.getAttribute('data-text');
+
+          // Create some CSS to apply to the shadow dom
+          //const style = document.createElement('style');
+          //style.textContent = '.wrapper {' + 'font-weight: 900;' + '}';
+
+          // attach the created elements to the shadow DOM
+          //this.shadowRoot.append(style, wrapper);
+          this.shadowRoot.appendChild(template.cloneNode(true));
+
+          let exploreRawEl = this.shadowRoot.getElementById('slot-explore-raw');
+          exploreRawEl.addEventListener('click', this.toggleExplore, false);
+
+          this.#lineWeight = this.#thickLines;
+        }
+
+        connectedCallback() {
+        }
+
+        disconnectedCallback() {
+        }
+
+        adoptedCallback() {
+        }
+
+        attributeChangedCallback(name, oldValue, newValue) {
+          //console.log(`Custom element attributes changed ${name} ${oldValue} ${newValue}.`);
+          if (name === "showExplore") {
+            if (newValue === true) { this.showExplore(true); }
+            else { this.showExplore(false); }
+          }
+        }
+
+        set lineWeight(weight) {
+          switch (weight) {
+            case 'thin':
+              this.#lineWeight = this.#thinLines;
+              break;
+            case 'thick':
+            default:
+              this.#lineWeight = this.#thickLines;
+              break;
+          }
+        }
+
+        get lineWeight() {
+          if (this.#lineWeight === this.#thickLines) {
+            return 'thick';
+          }
+          else if (this.#lineWeight === this.#thinLines) {
+            return 'thin';
+          }
+          return null;
+        }
+
+        set showExplore(toShowExplore) {
+          let exploreBitsEl = this.shadowRoot.getElementById('slot-explore-bits');
+          let exploreRepresentationEl = this.shadowRoot.getElementById('slot-explore-representation');
+          let flattenedRepresentationEl = this.shadowRoot.getElementById('slot-flattened-representation');
+          if (toShowExplore === true) {
+            this.#showDetails = true;
+            flattenedRepresentationEl.classList.add('hidden');
+            exploreBitsEl.classList.remove('hidden');
+            exploreRepresentationEl.classList.remove('hidden');
+          } else {
+            this.#showDetails = false;
+            flattenedRepresentationEl.classList.remove('hidden');
+            exploreBitsEl.classList.add('hidden');
+            exploreRepresentationEl.classList.add('hidden');
+          }
+        }
+
+        get nibbleStruct() {
+          return this.#nibbleStruct;
+        }
+
+        set nibbleStruct(nibbleStruct) {
+          // TODO: validate it is an object with the expected properties
+          this.#nibbleStruct = nibbleStruct;
+          if (this.#nibbleStruct === undefined) {
+            this.displayElement();
+            return;
+          }
+          //console.log(this.#nibbleStruct);
+
+          // fieldName.nibbles.symbolStart
+          // fieldName.nibbles.symbolEnd
+          //          .symbolMagnitude
+          //          .symbolValue
+
+          // annotation.nibbles.type (should be 0)
+          // annotation.nibbles.wrapperLengthStart
+          // annotation.nibbles.wrapperLengthEnd
+          // annotation.nibbles.annotationsLengthStart
+          // annotation.nibbles.annotationsLengthEnd
+          //           .lengthValue
+
+          // annotation.annotations[i].nibbles.symbolStart
+          // annotation.annotations[i].nibbles.symbolEnd
+          //                          .symbolMagnitude
+          //                          .symbolValue
+
+          // element.nibbles.type
+          // element.nibbles.lengthStart
+          // element.nibbles.lengthEnd
+          // element.nibbles.representationStart
+          // element.nibbles.representationEnd
+          //        .details
+          //        .lengthValue
+          //        .representation
+          //        .typeValue
+
+          // byteNibbles
+          // depth
+          // nibblesToDisplay
+          // offset
+          // totalNibbles
+
+          // LINES
+          // depth
+          // type
+          // length
+          // 
+
+          let printSpacesAndPipesForward = (lineLength, pipeArray) => {
+            let line = '', space = ' ', pipe = this.#lineWeight.vertical;
+
+            for (let i = 0, j = 0; i < lineLength; ++i) {
+              if (j < pipeArray.length) {
+                let pipeArrayIndex = j;
+                if (pipeArray[pipeArrayIndex].startIndex === i) {
+                  if (pipeArray[pipeArrayIndex].printedHeader === undefined) {
+                    line += `${this.#lineWeight.downAndRight}${this.#lineWeight.horizontal} ${pipeArray[pipeArrayIndex].header}`;
+                    pipeArray[pipeArrayIndex].printedHeader = true;
+                  } else {
+                    line += pipe;
+                  }
+                  ++j;
+
+                  // adds spaces between bytes
+                  if (i%2 === 1 && i !== 0) {
+                    line += space;
+                  }
+                  continue;
+                }
+              }
+              line += space;
+              // adds spaces between bytes
+              if (i%2 === 1 && i !== 0) {
+                line += space;
+              }
+            }
+
+            return line + '\n';
+          };
+
+          let printSpacesAndPipesReverse = (lineLength, pipeArray) => {
+            let line = '', space = ' ', pipe = this.#lineWeight.vertical;
+
+            let pipeArrayIndex = 0;
+            for (let i = 0; i < lineLength; ++i) {
+              if (pipeArrayIndex < (pipeArray.length-1) && pipeArray[pipeArrayIndex].startIndex === i) {
+                line += pipe;
+                pipeArrayIndex++;
+              }
+              else if (pipeArrayIndex === (pipeArray.length-1) && pipeArray[pipeArrayIndex].startIndex === i) {
+                line += `${this.#lineWeight.upAndRight}${this.#lineWeight.horizontal} ${pipeArray[pipeArrayIndex].header}`;
+                pipeArrayIndex++;
+              }
+              else {
+                line += space;
+              }
+
+              // adds spaces between bytes
+              if (i%2 === 1 && i !== 0) {
+                line += space;
+              }
+            }
+            return line + '\n';
+          };
+
+          let printSpacesAndPipesAll = (lineLength, pipeArray, endCharacter) => {
+            let line = '', space = ' ', pipe = this.#lineWeight.vertical;
+            if (endCharacter === undefined) { endCharacter = this.#lineWeight.downAndLeft; }
+            let pipeArrayIndex = 0;
+            for (let i = 0; i < lineLength; ++i) {
+              if (pipeArrayIndex < pipeArray.length && pipeArray[pipeArrayIndex].startIndex === i) {
+                
+                if (pipeArray[pipeArrayIndex].startIndex === pipeArray[pipeArrayIndex].endIndex) {
+                  line += pipe;
+                  pipeArrayIndex++;
+                } else {
+                  line += this.#lineWeight.verticalAndRight;
+                }
+              }
+              else if (pipeArrayIndex < pipeArray.length && pipeArray[pipeArrayIndex].startIndex < i &&
+                       pipeArray[pipeArrayIndex].endIndex > i) {
+                line += this.#lineWeight.horizontal;
+              } else if (pipeArrayIndex < pipeArray.length && pipeArray[pipeArrayIndex].endIndex === i) {
+                line += endCharacter;
+                pipeArrayIndex++;
+              } else {
+                line += space;
+              }
+
+              // adds spaces between bytes
+              if (i%2 === 1 && i !== 0) {
+                line += space;
+              }
+            }
+            return line + '\n';
+          };
+
+          let element = this.#nibbleStruct;
+          let pipeArray = [];
+          let lineLength = element.nibblesToDisplay;
+
+          let exploreBits = '';
+          let exploreOffset = '' + this.#nibbleStruct.offset;
+          let exploreDepth = this.#nibbleStruct.depth;
+          let exploreNibbles = '';
+          for (let i = 0; i < this.#nibbleStruct.byteNibbles.length; ++i) {
+            exploreNibbles += this.#nibbleStruct.byteNibbles[i];
+            
+            // adds spaces between bytes
+            if (i%2 === 1 && i !== 0) {
+              exploreNibbles += ' ';
+            }
+          }
+          let exploreRepresentation = '';
+
+          let preamble = '';
+          let preamble_depth = '';
+          preamble = preamble.padStart(13, ' ');
+          exploreOffset = exploreOffset.padStart(10, '0');
+
+          for (let i = 0; i < this.#nibbleStruct.depth; ++i) {
+            preamble_depth += ''.padStart(1, '•');
+          }
+          if (this.#nibbleStruct.depth > 0) {
+            preamble_depth += ' ';
+          }
+
+          //exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+          if (element.fieldName !== null && element.fieldName !== undefined) {
+            pipeArray.push({ "startIndex": element.fieldName.nibbles.symbolStart,
+                             "endIndex": element.fieldName.nibbles.symbolEnd,
+                             "header": `field name: ${element.fieldName.symbolMagnitude} (symbol id)` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+          }
+
+          if (element.annotation.lengthValue && element.annotation.lengthValue > 0) {
+            pipeArray.push({ "startIndex": element.annotation.nibbles.type,
+                             "endIndex": element.annotation.nibbles.type, 
+                             "header": `type: 14 (annotation)` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+            pipeArray.push({ "startIndex": element.annotation.nibbles.wrapperLengthStart,
+                             "endIndex": element.annotation.nibbles.wrapperLengthEnd,
+                             "header": `length of wrapped value: ${element.annotation.wrapperLengthValue} (bytes)` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+            pipeArray.push({ "startIndex": element.annotation.nibbles.annotationsLengthStart,
+                             "endIndex": element.annotation.nibbles.annotationsLengthEnd,
+                             "header": `length of annotations: ${element.annotation.lengthValue} (${element.annotation.lengthValue===1?'byte':'bytes'})` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+            for (let i = 0 ; i < element.annotation.annotations.length; ++i) {
+              pipeArray.push({ "startIndex": element.annotation.annotations[i].nibbles.symbolStart,
+                               "endIndex": element.annotation.annotations[i].nibbles.symbolEnd,
+                               "header": `annotation #${i+1}: ${element.annotation.annotations[i].symbolMagnitude} (symbol id)` });
+              exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+            } 
+            //annotationWrapperEl = '';
+          }
+
+          if (element.element.typeName === "bvm") {
+            pipeArray.push({ "startIndex": 0,
+                             "endIndex": 1,
+                             "header": `type: ${element.element.typeValue} (binary version marker)` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+            pipeArray.push({ "startIndex": 2,
+                             "endIndex": 3,
+                             "header": `major version: ${element.element.details.major}` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+            pipeArray.push({ "startIndex": 4,
+                            "endIndex": 5,
+                            "header": `minor version: ${element.element.details.minor}` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+            
+          } else {
+            pipeArray.push({ "startIndex": element.element.nibbles.type,
+                            "endIndex": element.element.nibbles.type,
+                            "header": `type: ${element.element.typeValue} (${element.element.typeName})` });
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+            if (element.element.typeName === "bool") {
+              pipeArray.push({ "startIndex": element.element.nibbles.lengthStart,
+                              "endIndex": element.element.nibbles.lengthEnd,
+                              "header": `representation: ${element.element.representation}` });
+            } else {
+              pipeArray.push({ "startIndex": element.element.nibbles.lengthStart,
+                              "endIndex": element.element.nibbles.lengthEnd,
+                              "header": `length: ${element.element.lengthValue} (bytes)` });
+            }
+            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+            if (element.element.nibbles.representationStart < lineLength) {
+              let repString = "representation";
+              if (element.element.typeName === "symbol") {
+                repString += `: ${element.element.details} (symbol id)`;
+                pipeArray.push({ "startIndex": element.element.nibbles.representationStart,
+                                "endIndex": element.element.nibbles.representationEnd,
+                                "header": repString });
+              } else if (element.element.typeName === "timestamp") {
+                let cumulative = 0;
+                // offset
+                pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                 "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.offset.numBytesRead * 2 - 1),
+                                 "header": `representation: ${element.element.details.offset.magnitude} (offset)`});
+                cumulative += (element.element.details.offset.numBytesRead * 2);
+                exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+                // year
+                pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                 "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.year.numBytesRead * 2 - 1),
+                                 "header": `representation: ${element.element.details.year.magnitude} (year)`});
+                cumulative += (element.element.details.year.numBytesRead * 2);
+                exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+                if (element.element.details.month !== undefined) {
+                  // month
+                  pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                  "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.month.numBytesRead * 2 - 1),
+                                  "header": `representation: ${element.element.details.month.magnitude} (month)`});
+                  cumulative += (element.element.details.month.numBytesRead * 2);
+                  exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+                  if (element.element.details.day !== undefined) {
+                    // day
+                    pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                    "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.day.numBytesRead * 2 - 1),
+                                    "header": `representation: ${element.element.details.day.magnitude} (day)`});
+                    cumulative += (element.element.details.day.numBytesRead * 2);
+                    exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+                    if (element.element.details.hour !== undefined && element.element.details.minute !== undefined) {
+                      // hour
+                      pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                      "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.hour.numBytesRead * 2 - 1),
+                                      "header": `representation: ${element.element.details.hour.magnitude} (hour)`});
+                      cumulative += (element.element.details.hour.numBytesRead * 2);
+                      exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+                      // minute
+                      pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                      "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.minute.numBytesRead * 2 - 1),
+                                      "header": `representation: ${element.element.details.minute.magnitude} (minute)`});
+                      cumulative += (element.element.details.minute.numBytesRead * 2);
+                      exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+                      if (element.element.details.second !== undefined) {
+                        // second
+                        pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                        "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.second.numBytesRead * 2 - 1),
+                                        "header": `representation: ${element.element.details.second.magnitude} (second)`});
+                        cumulative += (element.element.details.second.numBytesRead * 2);
+                        exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+                    
+                        if (element.element.details.fractionExponent !== undefined) {
+                          // fraction_exponent
+                          pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                          "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.fractionExponent.numBytesRead * 2 - 1),
+                                          "header": `representation: ${element.element.details.fractionExponent.magnitude} (fraction exponent)`});
+                          cumulative += (element.element.details.fractionExponent.numBytesRead * 2);
+                          exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+
+                          if (element.element.details.fractionCoefficient !== undefined) {
+                            // fraction_coefficient
+                            pipeArray.push({ "startIndex": element.element.nibbles.representationStart + cumulative,
+                                            "endIndex": element.element.nibbles.representationStart + cumulative + (element.element.details.fractionCoefficient.numBytesRead * 2 - 1),
+                                            "header": `representation: ${element.element.details.fractionCoefficient.magnitude} (fraction coefficient)`});
+                            cumulative += (element.element.details.fractionCoefficient.numBytesRead * 2);
+                            exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+              } else {
+                pipeArray.push({ "startIndex": element.element.nibbles.representationStart,
+                                "endIndex": element.element.nibbles.representationEnd,
+                                "header": repString });
+              }
+              exploreBits += preamble + preamble_depth + printSpacesAndPipesForward(lineLength, pipeArray);
+            }
+          }
+
+          exploreBits += preamble + preamble_depth + printSpacesAndPipesAll(lineLength, pipeArray, this.#lineWeight.downAndLeft);
+
+          let repPipeArray = [];
+          let flattenedRepresentation = `${element.element.representation}`;
+          if (element.element.typeName === "bvm"  || element.element.typeName === "nop") {
+            flattenedRepresentation = undefined;
+          } else if (element.element.typeName === "string") {
+            if (element.element.representation !== "null.string") {
+              flattenedRepresentation = `"${element.element.representation}"`;
+            }
+          } else if (element.element.typeName === "symbol") {
+            if (element.element.representation === undefined) {
+              flattenedRepresentation = `'$0'`;
+            } else if (element.element.representation !== "null.symbol") {
+              flattenedRepresentation = `'${element.element.representation}'`;
+            }
+          }
+
+          if (element.element.typeName === "bvm" || element.element.typeName === "nop") {
+            // do nothing
+          } else {
+            if (element.element.nibbles.representationStart < lineLength) {
+              if (element.element.typeName === "string") {
+                repPipeArray.unshift({ "startIndex": element.element.nibbles.representationStart,
+                                      "endIndex": element.element.nibbles.representationEnd,
+                                      "header": `"${element.element.representation}"` });
+              } else if (element.element.typeName === "symbol") {
+                repPipeArray.unshift({ "startIndex": element.element.nibbles.representationStart,
+                                      "endIndex": element.element.nibbles.representationEnd,
+                                      "header": `'${element.element.representation}'` });
+              } else {
+                repPipeArray.unshift({ "startIndex": element.element.nibbles.representationStart,
+                                      "endIndex": element.element.nibbles.representationEnd,
+                                      "header": element.element.representation });
+              }
+            // representation for containers and null values
+            } else {
+              if (element.element.typeName === "bool") {
+                repPipeArray.unshift({ "startIndex": element.element.nibbles.type+1,
+                                      "endIndex": element.element.nibbles.type+1,
+                                      "header": element.element.representation });
+              } else {
+                repPipeArray.unshift({ "startIndex": element.element.nibbles.type,
+                                      "endIndex": element.element.nibbles.type,
+                                      "header": element.element.representation });
+              }
+            }
+
+            if (element.annotation.lengthValue && element.annotation.lengthValue > 0) {
+              for (let i = element.annotation.annotations.length - 1; i >= 0; --i) {
+                repPipeArray.unshift({ "startIndex": element.annotation.annotations[i].nibbles.symbolStart,
+                                      "endIndex": element.annotation.annotations[i].nibbles.symbolEnd,
+                                      "header": `'${element.annotation.annotations[i].symbolValue}'::` });
+                flattenedRepresentation = `'${element.annotation.annotations[i].symbolValue}'::${flattenedRepresentation}`;
+              } 
+            }
+
+            if (element.fieldName !== null && element.fieldName !== undefined) {
+              repPipeArray.unshift({ "startIndex": element.fieldName.nibbles.symbolStart,
+                                    "endIndex": element.fieldName.nibbles.symbolEnd,
+                                    "header": `'${element.fieldName.symbolValue}':` });
+              flattenedRepresentation = `'${element.fieldName.symbolValue}': ${flattenedRepresentation}`;
+            }
+
+            exploreRepresentation += preamble + preamble_depth + printSpacesAndPipesAll(lineLength, repPipeArray, this.#lineWeight.upAndLeft);
+            while(repPipeArray.length > 0) {
+              exploreRepresentation += preamble + preamble_depth + printSpacesAndPipesReverse(lineLength, repPipeArray);
+              repPipeArray.pop();
+            }
+          }
+
+          let containersClosed;
+          if (element.containersToClose !== undefined && element.containersToClose.length > 0) {
+            containersClosed = '\n';
+            let depth = element.depth;
+            if (element.isZeroLengthContainer === undefined) {
+              depth--;
+            }
+            for (let i = 0; i < element.containersToClose.length; ++i) {
+              let modifiedDepth = '';
+              for (let i = 0; i < depth; ++i) {
+                modifiedDepth += ''.padStart(1, '•');
+              }
+              if (depth > 0) {
+                modifiedDepth += ' ';
+              }
+              let endContainer;
+              if (element.containersToClose[i] === 'list') {
+                endContainer = ']';
+              } else if (element.containersToClose[i] === 'struct') {
+                endContainer = '}';
+              } else if (element.containersToClose[i] === 'sexp') {
+                endContainer = ')';
+              }
+              containersClosed += '(implicit) ' + depth + ' ' + modifiedDepth + endContainer;
+              if (i < element.containersToClose.length - 1) {
+                containersClosed += '\n\n';
+              }
+              depth--;
+            }
+          }
+
+          this.displayElement(exploreOffset, exploreDepth, exploreNibbles, exploreBits, exploreRepresentation, 
+                               preamble, preamble_depth, flattenedRepresentation, containersClosed);
+        }
+      }
+
+      customElements.define('display-tabs', DisplayTabs);
+      customElements.define('ion-element', IonElement);
+
+      let exploring = false;
+
+      let fileDetailTabs = document.getElementById('fileDetailTabs');
+      fileDetailTabs.addButton('binary', 'textToDisplay');
+      fileDetailTabs.addButton('symbol tables', 'symbolTablesToDisplay');
+      fileDetailTabs.addButton('stats', 'statsToDisplay');
+      fileDetailTabs.setActive(0);
+
+      let dropZone = document.getElementById('dropzone');
+      let list = document.getElementById('list');
+      let textToDisplay = document.getElementById('textToDisplay');
+      let statsToDisplay = document.getElementById('statsToDisplay');
+      let symbolTablesToDisplay = document.getElementById('symbolTablesToDisplay');
+      let resetBtn = document.getElementById('btn-reset');
+      let toggleExploringBtn = document.getElementById('btn-toggleExploring');
+      let numWorkersText = document.getElementById('txt-numWorkers');
+      let workerSizeText = document.getElementById('txt-workerSize');
+      let trackStatsCheckbox = document.getElementById('ckb-trackStats');
+      let jumpToOffsetText = document.getElementById('txt-jumpToOffset');
+
+      let ionElements = [];
+      const kNumElements = 500;
+      for (let i = 0; i < kNumElements; ++i) {
+        let element = document.createElement('ion-element');
+        element.setAttribute("id", `ionElement-${i}`);
+        textToDisplay.appendChild(element);
+        ionElements.push(element);
+        //if (i%2) {
+        //  element.lineWeight = 'thin';
+        //}
+      }
+
+      let t0;
+      let t1;
+      let currentFile;
+
+      let bytesInFile;
+      let passOneBytesRead;
+      let passOnePercent;
+      let passOneMs;
+      let passTwoBytesRead;
+      let passTwoPercent;
+      let passTwoMs;
+      let finishedReading = false;
+
+      let tableLines = {
+        'leftUpper': '┌',
+        'horizontal': '─',
+        'vertical': '│',
+        'verticalSeparator': '┊',
+        'leftLower': '└',
+        'rightUpper': '┐',
+        'rightLower': '┘',
+        'divideLeft': '╞',
+        'divideHorizontal': '═',
+        'divideHorizontalSeparator': '╪',
+        'divideRight': '╡'
+      };
+
+      let padStartEnd = (stringToPad, finalLength, character) => {
+        return stringToPad.padStart((stringToPad.length + finalLength)/2, character).padEnd(finalLength, character);
+      };
+
+      let tableHeader = (columnTitles, columnWidths, columnJustify) => {
+        let topLine = `${tableLines.leftUpper}${tableLines.horizontal}`;
+        let divideLine = `${tableLines.divideLeft}${tableLines.divideHorizontal}`;
+        let headerLine = `${tableLines.vertical} `;
+        for (let i = 0; i < columnTitles.length; ++i) {
+          if (columnJustify[i] === 'left') {
+            headerLine += columnTitles[i].padEnd(columnWidths[i], ' ');
+          } else if (columnJustify[i] === 'center') {
+            headerLine += padStartEnd(columnTitles[i], columnWidths[i], ' ');
+          } else {
+            headerLine += columnTitles[i].padStart(columnWidths[i], ' ');
+          }
+          topLine += ''.padStart(columnWidths[i], tableLines.horizontal);
+          divideLine += ''.padStart(columnWidths[i], tableLines.divideHorizontal);
+
+          if (i !== (columnTitles.length-1)) {
+            headerLine += ` ${tableLines.verticalSeparator} `;
+            topLine += `${tableLines.horizontal}${tableLines.horizontal}${tableLines.horizontal}`;
+            divideLine += `${tableLines.divideHorizontal}${tableLines.divideHorizontalSeparator}${tableLines.divideHorizontal}`;
+          }
+        }
+        topLine += `${tableLines.horizontal}${tableLines.rightUpper}\n`;
+        divideLine += `${tableLines.divideHorizontal}${tableLines.divideRight}\n`;
+        headerLine += ` ${tableLines.vertical}\n`;
+        return `${topLine}${headerLine}${divideLine}`;
+      };
+
+      let tableRow = (columnValues, columnWidths, columnJustify) => {
+        let rowLine = `${tableLines.vertical} `;
+        for (let i = 0; i < columnValues.length; ++i) {
+          if (columnJustify[i] === 'left') {
+            rowLine += columnValues[i].padEnd(columnWidths[i], ' ');
+          } else if (columnJustify[i] === 'center') {
+            rowLine += padStartEnd(columnValues[i], columnWidths[i], ' ');
+          } else {
+            rowLine += columnValues[i].padStart(columnWidths[i], ' ');
+          }
+          if (i !== (columnValues.length-1)) {
+            rowLine += ` ${tableLines.verticalSeparator} `;
+          }
+        }
+        rowLine += ` ${tableLines.vertical}\n`;
+        return rowLine;
+      };
+
+      let tableFooter = (columnWidths) => {
+        let footerLine = `${tableLines.leftLower}${tableLines.horizontal}`;
+        for (let i = 0; i < columnWidths.length; ++i) {
+          footerLine += `${''.padStart(columnWidths[i], tableLines.horizontal)}`;
+          if (i !== (columnWidths.length-1)) {
+            footerLine += `${tableLines.horizontal}${tableLines.horizontal}${tableLines.horizontal}`;
+          }
+        }
+        footerLine += `${tableLines.horizontal}${tableLines.rightLower}\n`;
+        return footerLine;
+      };
+
+      let workerCoordinator;
+      let displayOffset = (offsetToDisplay) => {
+        workerCoordinator.postMessage({'action': 'exploreBinary', 'offset': offsetToDisplay});
+      };
+      let displaySymbol = (symbolID) => {
+        workerCoordinator.postMessage({'action': 'exploreSymbols', 'symbolIDs': [symbolID]});
+      };
+      let toggleExploring = () => {
+        exploring = !exploring;
+        for (let i = 0; i < ionElements.length; ++i) {
+          ionElements[i].showExplore = exploring;
+        }
+      };
+      let displayStats = (stats) => {
+        console.log(stats);
+
+        let dumpScalar = (typeName, scalarTotal) => {
+          dump = '';
+          dump += tableRow([typeName,
+                            `${stats[typeName].count}`,
+                            `${stats[typeName].maxBytes.value}`,
+                            `${stats[typeName].maxDepth.value}`,
+                            `${stats[typeName].byteCount}`,
+                            `${((stats[typeName].byteCount / scalarTotal) * 100).toFixed(2)}%`,
+                            `${JSON.stringify(stats[typeName].depthCount)}`],
+                            [13, 9, 9, 9, 13, 13, 41],
+                            ['left', 'right', 'right', 'right', 'right', 'right', 'center']);
+          return dump;
+        };
+
+        // limit maxAnnotation offsets to 6
+        let maxAnnotationsOffsets = [];
+        for (let i = 0; i < stats.maxAnnotations.offset.length; ++i) {
+          maxAnnotationsOffsets.push(stats.maxAnnotations.offset[i]);
+          if (i > 5) { break; }
+        }
+
+        let statsTables = '';
+
+        statsTables += tableHeader(['attribute', 'value', 'count', 'bytes', 'offsets'], [14, 13, 13, 13, 32], ['center', 'center', 'center', 'center', 'center']);
+        statsTables += tableRow(['topLevelValues', '', `${stats.topLevelCount}`, '', ''], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableRow(['bvm', '', `${stats.bvm.count}`, `${stats.bvm.byteCount}`, ''], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableRow(['maxDepth', `${stats.maxDepth.value}`, '', '', ''], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableRow(['maxAnnotations', `${stats.maxAnnotations.value}`, `${stats.maxAnnotations.count}`, '', `${JSON.stringify(maxAnnotationsOffsets)}`], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableRow(['lst', '', `${stats.symbolTable.local.count}`, '', ''], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableRow(['lsta', '', `${stats.symbolTable.append.count}`, '', ''], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableRow(['sst', '', `${stats.symbolTable.shared.count}`, '', ''], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableRow(['nulls', '', `${stats.nulls.count}`, '', ''], [14, 13, 13, 13, 32], ['left', 'right', 'right', 'right', 'center']);
+        statsTables += tableFooter([14, 13, 13, 13, 32]);
+
+        statsTables += `\nContainers\n`;
+        statsTables += tableHeader(['type', 'count', 'maxLength', 'maxLength #', 'maxLength Offsets', 'depthCounts'],
+                                   [13, 9, 9, 11, 32, 36],
+                                   ['left', 'right', 'right', 'right', 'center', 'center']);
+        statsTables += tableRow([`list`,
+                                 `${stats.list.count}`,
+                                 `${stats.list.maxBytes.value}`,
+                                 `${stats.list.maxBytes.count}`,
+                                 `${JSON.stringify(stats.list.maxBytes.offset)}`,
+                                 `${JSON.stringify(stats.list.depthCount)}`],
+                                 [13, 9, 9, 11, 32, 36],
+                                 ['left', 'right', 'right', 'right', 'center', 'center']);
+        statsTables += tableRow([`sexp`,
+                                 `${stats.sexp.count}`,
+                                 `${stats.sexp.maxBytes.value}`,
+                                 `${stats.sexp.maxBytes.count}`,
+                                 `${JSON.stringify(stats.sexp.maxBytes.offset)}`,
+                                 `${JSON.stringify(stats.sexp.depthCount)}`],
+                                 [13, 9, 9, 11, 32, 36],
+                                 ['left', 'right', 'right', 'right', 'center', 'center']);
+        statsTables += tableRow([`struct`,
+                                 `${stats.struct.count}`,
+                                 `${stats.struct.maxBytes.value}`,
+                                 `${stats.struct.maxBytes.count}`,
+                                 `${JSON.stringify(stats.struct.maxBytes.offset)}`,
+                                 `${JSON.stringify(stats.struct.depthCount)}`],
+                                 [13, 9, 9, 11, 32, 36],
+                                 ['left', 'right', 'right', 'right', 'center', 'center']);
+        statsTables += tableFooter([13, 9, 9, 11, 32, 36]);
+
+        let scalarTotal = stats.annotation.byteCount + stats.blob.byteCount + stats.bool.byteCount + 
+                          stats.clob.byteCount + stats.decimal.byteCount + stats.float.byteCount +
+                          stats['int+'].byteCount + stats['int-'].byteCount + stats.nop.byteCount +
+                          stats.null.byteCount + stats.string.byteCount + stats.symbol.byteCount +
+                          stats.timestamp.byteCount;
+        statsTables += `\nScalars (${scalarTotal} bytes - ${((scalarTotal / bytesInFile) * 100).toFixed(2)}% of file)\n`;
+        statsTables += tableHeader(['type', 'count', 'maxLength', 'maxDepth', 'bytes', '% scalars', 'depthCounts'],
+                                   [13, 9, 9, 9, 13, 13, 41],
+                                   ['left', 'right', 'right', 'right', 'right', 'right', 'center']);
+        statsTables += dumpScalar('annotation', scalarTotal);
+        statsTables += dumpScalar('blob', scalarTotal);
+        statsTables += dumpScalar('bool', scalarTotal);
+        statsTables += dumpScalar('clob', scalarTotal);
+        statsTables += dumpScalar('decimal', scalarTotal);
+        statsTables += dumpScalar('float', scalarTotal);
+        statsTables += dumpScalar('int+', scalarTotal);
+        statsTables += dumpScalar('int-', scalarTotal);
+        statsTables += dumpScalar('nop', scalarTotal);
+        statsTables += dumpScalar('null', scalarTotal);
+        statsTables += dumpScalar('string', scalarTotal);
+        statsTables += dumpScalar('symbol', scalarTotal);
+        statsTables += dumpScalar('timestamp', scalarTotal);
+        statsTables += tableFooter([13, 9, 9, 9, 13, 13, 41]);
+
+        statsToDisplay.innerText = statsTables;
+      };
+      let displaySymbolTables = (symbols, offsets) => {
+        let symbolTables = '';
+        symbolTables += `Total number of symbol tables: ${symbols.length}\n\n`;
+        for (let i = 0; i < symbols.length; ++i) {
+          symbolTables += `Symbol Table ${i} - ${symbols[i].length} symbols\n`;
+          symbolTables += tableHeader(['symbol id', 'offset', 'times used', 'string'], [14, 11, 11, 64], ['center', 'center', 'center', 'center']);
+          for (let j = 0; j < symbols[i].length; ++j) {
+            symbolTables += tableRow([`${j+1}`, `${offsets[i][j]}`, '', `${symbols[i][j]}`], [14, 11, 11, 64], ['right', 'right', 'right', 'left']);
+          }
+          symbolTables += tableFooter([14, 11, 11, 64]);
+          symbolTables += `\n`;
+        }
+        symbolTablesToDisplay.innerText = symbolTables;
+      };
+      let resetExplorer = () => {
+        t0 = undefined;
+        t1 = undefined;
+        currentFile = '';
+        bytesInFile = 0;
+        passOneBytesRead = 0;
+        passOnePercent = 0;
+        passOneMs = 0;
+        passTwoBytesRead = 0;
+        passTwoPercent = 0;
+        passTwoMs = 0;
+        finishedReading = false;
+        let filenameLegend = document.getElementById('filename');
+        filenameLegend.innerText = 'No binary loaded';
+        dropZone.style.display = 'block';
+        list.innerText = '';
+        statsToDisplay.innerText = '';
+        symbolTablesToDisplay.innerText = '';
+
+        workerSizeText.disabled = false;
+        numWorkersText.disabled = false;
+        resetBtn.disabled = true;
+        toggleExploringBtn.disabled = true;
+        jumpToOffsetText.disabled = true;
+        jumpToOffsetText.value = '0';
+        fileDetailTabs.disableAll();
+
+        for (let i = 0; i < kNumElements; ++i) {
+          let el = ionElements[i];
+          el.displayElement();
+        }
+
+        workerCoordinator = new Worker('worker-coordinator.js');
+
+        workerCoordinator.onmessage = (event) => {
+          switch (event.data.action) {
+            case 'nibblesToDisplay':
+              for (let i = 0; i < kNumElements; ++i) {
+                let el = ionElements[i];
+                if (i >= event.data.nibbles.length) { break; }
+                el.nibbleStruct = event.data.nibbles[i];
+
+                // expand the target
+                //if (event.data.nibbles[i].offset <= event.data.target &&
+                //    event.data.nibbles[i].offset + (event.data.nibbles[i].nibblesToDisplay/2) >= event.data.target) {
+                //  el.showExplore = true;
+                //}
+              }
+              break;
+            case 'topLevelSliceCompleted':
+              passOneBytesRead += event.data.bytesRead;
+              passOnePercent = ((passOneBytesRead/bytesInFile) * 100).toFixed(1);
+              list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+              displaySymbolTables(event.data.symbolTables, event.data.symbolOffsets);
+              break;
+            case 'topLevelValuesRead':
+              passOnePercent = 100;
+              passOneMs = event.data.msTaken.toFixed(1);
+              list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+              break;
+            case 'loaded':
+              bytesInFile = event.data.fileStats;
+              list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+             break;
+            case 'workerReaderFinishedBuffer':
+              if (finishedReading === false) {
+                passTwoBytesRead += event.data.size;
+                passTwoPercent = ((passTwoBytesRead/bytesInFile) * 100).toFixed(1);
+                list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+                displayStats(event.data.stats);
+              }
+              break;
+            case 'workerReaderTiming':
+              if (finishedReading === false) {
+                passTwoMs = event.data.msTaken.toFixed(1);
+                list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+                finishedReading = true;
+                workerSizeText.disabled = true;
+                numWorkersText.disabled = true;
+                resetBtn.disabled = false;
+                toggleExploringBtn.disabled = false;
+                jumpToOffsetText.disabled = false;
+                displayStats(event.data.stats);
+                displaySymbolTables(event.data.symbolTables, event.data.symbolOffsets);
+              }
+              break;
+            default:
+              console.log(`||main-thread|| received unknown message from worker-coordinator ${JSON.stringify(event.data)}`);
+          }
+        };
+        
+        setNumWorkers({'target': numWorkersText});
+        setWorkerSize({'target': workerSizeText});
+      };
+      resetExplorer();
+
+      async function handleFileSelect(evt) {
+        evt.stopPropagation();
+        evt.preventDefault();
+
+        let filenameLegend = document.getElementById('filename');
+        let files = evt.dataTransfer.files;
+        let file = files[0];
+        filenameLegend.innerText = file.name;
+        dropZone.style.display = 'none';
+        list.innerText = ``;
+        currentFile = file;
+        t0 = performance.now();
+        workerSizeText.disabled = true;
+        numWorkersText.disabled = true;
+        resetBtn.disabled = false;
+        toggleExploringBtn.disabled = false;
+        jumpToOffsetText.disabled = false;
+        fileDetailTabs.enableAll();
+        workerCoordinator.postMessage({'action': 'loadFile', 'file': file});
+      }
+
+      function handleDragOver(evt) {
+        evt.stopPropagation();
+        evt.preventDefault();
+        evt.dataTransfer.dropEffect = 'copy';
+      }
+
+      function setNumWorkers(evt) {
+        let numWorkers = parseInt(evt.target.value, 10);
+        if (!isNaN(numWorkers)) {
+          if (numWorkers < 1) { numWorkers = 1; }
+          if (numWorkers > 15) { numWorkers = 15; }
+        } else {
+          numWorkers = 3;
+        }
+        numWorkersText.value = numWorkers;
+        workerCoordinator.postMessage({'action': 'setNumWorkers', 'numWorkers': numWorkers});
+      }
+
+      function setWorkerSize(evt) {
+        let workerSize = parseInt(evt.target.value, 10);
+        if (!isNaN(workerSize)) {
+          if (workerSize < 10000) { workerSize = 10000; }
+          if (workerSize > 1000000000) { workerSize = 1000000000; }
+        } else {
+          workerSize = 35000000;
+        }
+        workerSizeText.value = workerSize;
+        workerCoordinator.postMessage({'action': 'setWorkerSize', 'workerSize': workerSize});
+      }
+
+      function setTrackStats(evt) {
+      }
+
+      function jumpToOffset(evt) {
+        let offset = parseInt(evt.target.value, 10);
+        if (isNaN(offset) || bytesInFile === undefined) {
+          offset = 0;
+        }
+        if (offset > bytesInFile) {
+          offset = bytesInFile;
+        }
+        displayOffset(offset);
+      }
+
+      dropZone.addEventListener('dragover', handleDragOver, false);
+      dropZone.addEventListener('drop', handleFileSelect, false);
+
+      resetBtn.addEventListener('click', resetExplorer, false);
+      toggleExploringBtn.addEventListener('click', toggleExploring, false);
+      numWorkersText.addEventListener('change', setNumWorkers); // e.target.value
+      workerSizeText.addEventListener('change', setWorkerSize);
+      trackStatsCheckbox.addEventListener('change', setTrackStats);
+      jumpToOffsetText.addEventListener('change', jumpToOffset);
+    </script>
+  </body>
+</html>
