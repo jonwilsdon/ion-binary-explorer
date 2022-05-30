@@ -68,8 +68,8 @@
         }
         pre {
           margin: 0;
-          font-family: Menlo, monospace;
-          font-size: 0.8rem;
+          font-family: Menlo, Consolas, monospace;
+          font-size: 0.75rem;
         }
         .hidden {
           display: none;
@@ -110,8 +110,8 @@
           <div style="max-width: 100%">
             <div id="dropzone">Drop file here</div>
             <span id="textToDisplay"></span>
-            <pre style="font-family: Menlo, monospace; font-size: 0.8rem;"><span id="statsToDisplay"></span></pre>
-            <pre style="font-family: Menlo, monospace; font-size: 0.8rem;"><span id="symbolTablesToDisplay"></span></pre>
+            <pre style="font-family: Menlo, Consolas, monospace; font-size: 0.75rem;"><span id="statsToDisplay"></span></pre>
+            <pre style="font-family: Menlo, Consolas, monospace; font-size: 0.75rem;"><span id="symbolTablesToDisplay"></span></pre>
           </div>
           <div id="content" style="word-wrap: anywhere;"></div>
         </fieldset>
@@ -821,6 +821,8 @@
       let passTwoMs;
       let finishedReading = false;
 
+      let symbolTableLengths = [];
+
       let tableLines = {
         'leftUpper': '┌',
         'horizontal': '─',
@@ -910,7 +912,7 @@
         }
       };
       let displayStats = (stats) => {
-        console.log(stats);
+        //console.log(stats);
 
         let dumpScalar = (typeName, scalarTotal) => {
           dump = '';
@@ -1003,6 +1005,20 @@
         statsToDisplay.innerText = statsTables;
       };
       let displaySymbolTables = (symbols, offsets) => {
+        // see if there are any new symbols
+        if (symbolTableLengths.length === symbols.length) {
+          let allSame = true;
+          for (let i = 0; i < symbols.length; ++i) {
+            if (symbolTableLengths[i] !== symbols[i].length) {
+              allSame = false;
+              break;
+            }
+          }
+          if (allSame === true) {
+            return;
+          }
+        }
+
         let symbolTables = '';
         symbolTables += `Total number of symbol tables: ${symbols.length}\n\n`;
         for (let i = 0; i < symbols.length; ++i) {
@@ -1015,6 +1031,11 @@
           symbolTables += `\n`;
         }
         symbolTablesToDisplay.innerText = symbolTables;
+
+        symbolTableLengths = [];
+        for (let i = 0; i < symbols.length; ++i) {
+          symbolTableLengths.push(symbols[i].length);
+        }
       };
       let resetExplorer = () => {
         t0 = undefined;
@@ -1069,6 +1090,7 @@
               passOneBytesRead += event.data.bytesRead;
               passOnePercent = ((passOneBytesRead/bytesInFile) * 100).toFixed(1);
               list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+              displaySymbolTables(event.data.symbolTables, event.data.symbolOffsets);
               break;
             case 'topLevelValuesRead':
               passOnePercent = 100;
@@ -1080,12 +1102,12 @@
               list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
              break;
             case 'workerReaderFinishedBuffer':
+              console.log(`workerReaderFinishedBuffer ${finishedReading} ${event.data.size} ${passTwoBytesRead}`);
               if (finishedReading === false) {
                 passTwoBytesRead += event.data.size;
                 passTwoPercent = ((passTwoBytesRead/bytesInFile) * 100).toFixed(1);
                 list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
                 displayStats(event.data.stats);
-                displaySymbolTables(event.data.symbolTables, event.data.symbolOffsets);
               }
               break;
             case 'workerReaderTiming':
@@ -1099,7 +1121,6 @@
                 toggleExploringBtn.disabled = false;
                 jumpToOffsetText.disabled = false;
                 displayStats(event.data.stats);
-                displaySymbolTables(event.data.symbolTables, event.data.symbolOffsets);
               }
               break;
             default:

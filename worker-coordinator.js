@@ -3,14 +3,17 @@
 importScripts('js/bite.js');
 
 const BYTES_TO_BUFFER = 35000000;
-const INSPECT_BYTES_TO_BUFFER = 100000;
+const INSPECT_BYTES = 2000;
 const NUMBER_OF_WORKERS = 3;
+const VERIFY = false;
 
 const bsr = new BITE.ByteSliceReader(BYTES_TO_BUFFER);
+const bsr_inspect = new BITE.ByteSliceReader(BYTES_TO_BUFFER);
 const bsr_toplevel = new BITE.ByteSliceReader(BYTES_TO_BUFFER);
 const SymbolTable = BITE.SymbolTable;
 const IonTypes = BITE.IonTypes;
 const Analyzer = BITE.Analyzer;
+const ElementStack = BITE.ElementStack;
 
 let fileStats = 0;
 let t0;
@@ -19,6 +22,7 @@ let t2;
 
 let topLevelOffsets = [0];
 let readerSliceOffsets = [];
+let readerSliceLongElements = [];
 let workerOffsets = [];
 let lastProcessed = 0;
 let symbolTableOffsets = [];
@@ -33,6 +37,74 @@ let readingFinished = false;
 let numWorkers = NUMBER_OF_WORKERS;
 let bytesToBuffer = BYTES_TO_BUFFER;
 
+
+
+let checkpoints = [];
+
+class Checkpoint {
+  #offset = 0;
+  #elementStack = null;
+  constructor(offset, elementStack) {
+    if (!((Number.isInteger(offset) && offset >= 0) || 
+         (typeof offset === 'bigint' && offset >= 0n))) {
+      throw new Error(`Checkpoint - offset ${offset} is not a number.`);
+    }
+
+    if (!(elementStack instanceof ElementStack || elementStack === null)) {
+      throw new Error(`Checkpoint - elementStack ${elementStack} is not an ElementStack.`);
+    }
+
+    this.#offset = offset;
+    this.#elementStack = elementStack;
+  }
+
+  get offset() {
+    return this.#offset;
+  }
+
+  get elementStack() {
+    return this.#elementStack;
+  }
+};
+
+// ensures checkpoints are sorted in ascending order by offset
+function addCheckpoint(checkpoint) {
+  if (!(checkpoint instanceof Checkpoint)) {
+    throw new Error(`addCheckpoint - checkpoint ${checkpoint} is not a Checkpoint.`);
+  }
+
+  // most common case, adding checkpoint to the end
+  if (checkpoints.length === 0 || checkpoint.offset > checkpoints[checkpoints.length-1].offset) {
+    checkpoints.push(checkpoint);
+    return;
+  }
+
+  for (let i = checkpoints.length-1; i >= 0; --i) {
+    if (checkpoint.offset === checkpoints[i].offset) {
+      // do nothing
+      return;
+    }
+    if (checkpoint.offset > checkpoints[i].offset) {
+      //insert
+      checkpoints.splice(i, 0, checkpoint);
+      return;
+    }
+  }
+
+  throw new Error(`addCheckpoint - checkpoint not added to checkpoints.`);
+}
+
+function findNearestCheckpoint(offset) {
+  let nearestOffsetIndex = checkpoints.length-1;
+  for (let i = 0; i < checkpoints.length; ++i) {
+    if (checkpoints[i].offset > offset) {
+      nearestOffsetIndex = i-1;
+      break;
+    }
+  }
+  return checkpoints[nearestOffsetIndex];
+}
+
 // WorkerCoordinator delegates work to a pool of workers, stores the meta information about the bytes (symbol tables,
 // stats, etc.), and is the communication hub with the main thread.
 
@@ -45,6 +117,9 @@ let bytesToBuffer = BYTES_TO_BUFFER;
 //    main thread is then notified that the stats are complete.
 
 function addTopLevelOffsets(offsetArray) {
+  if (offsetArray === undefined || offsetArray.length === 0) {
+    return;
+  }
   // drop the first element as it is the same as the last element of the previous array
   if (topLevelOffsets[topLevelOffsets.length-1] === offsetArray[0]) {
     offsetArray.shift();
@@ -123,25 +198,121 @@ function addContextOffsets(contextOffsets) {
   }
 }
 
+let inspectWorker = new Worker('inspect-worker.js');
+inspectWorker.onmessage = (event) => {
+  switch (event.data.action) {
+    case "nibbles":
+      let nibbles = event.data.nibblesToDisplay;
+      for (let i = 0; i < nibbles.length; ++i) {
+        let offset = nibbles[i].offset;
+        let symbolTable = getSymbolTable(offset);
+        if (nibbles[i].fieldName !== null) {
+          if (symbolTable !== null) {
+            nibbles[i].fieldName.symbolValue = symbolTable.getSymbolValue(nibbles[i].fieldName.symbolMagnitude, offset);
+          } else {
+            // TODO: ERROR - no symbol table
+          }
+        }
+        if (nibbles[i].annotation.annotations !== undefined) {
+          let annotations = nibbles[i].annotation.annotations;
+          for (let j = 0; j < annotations.length; ++j) {
+            if (symbolTable !== null) {
+              annotations[j].symbolValue = symbolTable.getSymbolValue(annotations[j].symbolMagnitude, offset);
+            } else {
+              // TODO: ERROR - no symbol table
+            }
+          }
+        }
+        if (nibbles[i].element.typeValue === IonTypes['symbol']) {
+          if (symbolTable !== null) {
+            nibbles[i].element.representation = symbolTable.getSymbolValue(nibbles[i].element.details, offset);
+          } else {
+            // TODO: ERROR - no symbol table
+          }
+        }
+      };
+      postMessage({'action': 'nibblesToDisplay', 'nibbles': nibbles, 'target': event.data.target });
+      break;
+    default:
+      console.log(`worker-coordinator: received action from inspectWorker ${event.data.action}`);
+      break;
+  }
+};
+inspectWorker.onerror = (error) => {
+  console.log(`worker-coordinator: received error from inspectWorker ${JSON.stringify(error)}`);
+};
+
 // The top-level worker completes the first pass of the file
 let topLevelWorker = new Worker('top-level-worker.js');
 topLevelWorker.onmessage = (event) => {
   switch (event.data.action) {
     case 'topLevelSlice':
-      let bytesRead = event.data.topLevelOffsets[event.data.topLevelOffsets.length - 1] - event.data.offsetInFile;
-      postMessage({'action': 'topLevelSliceCompleted', 'bytesRead': bytesRead});
+      let bytesRead;
+
+      if (event.data.longElementOffset !== null) {
+        bytesRead = event.data.longElementOffset - event.data.offsetInFile;
+      } else {
+        bytesRead = event.data.topLevelOffsets[event.data.topLevelOffsets.length-1] - event.data.offsetInFile;
+      }
+
       addTopLevelOffsets(event.data.topLevelOffsets);
+      let tlo = event.data.topLevelOffsets;
+      for (let i = 0; i < tlo.length; ++i) {
+        addCheckpoint(new Checkpoint(tlo[i], null));
+      }
+
+      if (event.data.longElementOffset !== null) {
+        addCheckpoint(new Checkpoint(event.data.longElementOffset, new ElementStack(event.data.longElementStack)));
+      }
+
       addSymbolTableOffsets(event.data.symbolTableOffsets);
       if (event.data.contextOffsets.length > 0) {
         addContextOffsets(event.data.contextOffsets);
       }
 
+      // add symbol tables
+      for (let j = 0; j < event.data.symbolTables.length; ++j) {
+        if (event.data.symbolTables[j].append === false) {
+          addSymbolTable(event.data.symbolTables[j]);
+        }
+        stats.addSymbolTable(event.data.symbolTables[j]);
+      }
+
+      // add symbols
+      let symbolsToAdd = event.data.symbolsToAdd;
+      
+      for (let j = 0; j < symbolsToAdd.length; ++j) {
+        let symbolTable = getSymbolTable(symbolsToAdd[j].position+event.data.offsetInFile);
+        if (symbolTable !== null) {
+          let symbolID = symbolTable.addSymbol(symbolsToAdd[j].symbolString, 
+                                               symbolsToAdd[j].position+event.data.offsetInFile);
+        } else {
+          // TODO: ERROR - no symbol table
+        }
+      }
+
+      let symbols = [];
+      let offsets = [];
+      for (let i = 0; i < symbolTables.length; ++i) {
+        symbols.push(symbolTables[i].table.symbols);
+        offsets.push(symbolTables[i].table.meta);
+      }
+
+      postMessage({'action': 'topLevelSliceCompleted', 'bytesRead': bytesRead, 'symbolTables': symbols, 'symbolOffsets': offsets});
+
       // At the first slice and there are more bytes than the first inspect pass will read
-      if (event.data.offsetInFile === 0 &&
-          event.data.topLevelOffsets[event.data.topLevelOffsets.length-1] > INSPECT_BYTES_TO_BUFFER) {
-        let firstOffsetToRead = findNearestTopLevelOffset(INSPECT_BYTES_TO_BUFFER);
-        //workerOffsets.unshift({"offset":firstOffsetToRead});
-        readerSliceOffsets.unshift(firstOffsetToRead);
+      if (event.data.offsetInFile === 0) {
+        //  &&
+        //  event.data.topLevelOffsets[event.data.topLevelOffsets.length-1] > INSPECT_BYTES_TO_BUFFER) {
+        //let firstOffsetToRead = findNearestTopLevelOffset(INSPECT_BYTES_TO_BUFFER);
+        //readerSliceOffsets.unshift(firstOffsetToRead);
+        readerSliceOffsets.unshift(0);
+        readerSliceLongElements.unshift([null, null]);
+
+        bsr_inspect.fillBuffer(4, 0).then(value => {
+          let buf = bsr_inspect.biBuffer;
+          sendBufferToWorker(inspectWorker, buf, 0, {'rangeStart': 0, 'rangeEnd': INSPECT_BYTES});
+        });
       }
 
       if (event.data.atEnd === true) {
@@ -151,24 +322,47 @@ topLevelWorker.onmessage = (event) => {
                      'numSymbolTables': symbolTableOffsets.length, 'msTaken': msTaken});
 
         topLevelReaderDone = true;
-        bsr.setBufferSize(bytesToBuffer);
-        checkReaderWorkers();
-
+        //bsr.setBufferSize(bytesToBuffer);
+        //checkReaderWorkers();
       } else {
         // next set of top level values
-        let offsetToStart = event.data.topLevelOffsets[event.data.topLevelOffsets.length-1];
+        let offsetToStart;
+        let options = { 'verify': VERIFY };
+        if (event.data.longElementOffset !== null) {
+          offsetToStart = event.data.longElementOffset;
+          options.inLargeContainer = true;
+          options.longElementStack = event.data.longElementStack;
+          options.longElementStackNext = event.data.longElementStackNext;
+        } else {
+          if (event.data.topLevelOffsets.length === 0) {
+            console.log(event.data);
+          }
+          offsetToStart = event.data.topLevelOffsets[event.data.topLevelOffsets.length-1];
+        }
+
         let context = contextForOffset(offsetToStart);
-        readerSliceOffsets.push(offsetToStart);
+        if (offsetToStart > readerSliceOffsets[readerSliceOffsets.length-1]) {
+          readerSliceOffsets.push(offsetToStart);
+        } else {
+          throw new Error(`worker-coordinator: offsetToStart ${offsetToStart} <= last readerSliceOffsets ${readerSliceOffsets[readerSliceOffsets.length-1]}`);
+        }
+        readerSliceLongElements.push([event.data.longElementStack, event.data.longElementStackNext]);
+        options.context = context;
 
         // read the next buffer and then send that buffer to the top-level-worker to read all
         // top-level values in the file
-        //             +- minimum bytes needed (bvm size)
-        //             |  +- offset to start
-        //             V  v
+        //                      +- minimum bytes needed (bvm size)
+        //                      |  +- offset to start
+        //                      V  v
+        console.log(`bsr_toplevel fillBuffer ${offsetToStart}`);
         bsr_toplevel.fillBuffer(4, offsetToStart).then(value => {
           let buf = bsr_toplevel.biBuffer;
-          sendBufferToWorker(topLevelWorker, buf, offsetToStart, {'context': context});
+          sendBufferToWorker(topLevelWorker, buf, offsetToStart, options);
         });
+      }
+
+      if (availableWorkers.length > 0) {
+        checkReaderWorkers(readerSliceOffsets[0], event.data.buffer);
       }
       break;
     default:
@@ -195,22 +389,22 @@ function createReaderWorkers(numWorkers, workerSize) {
         addContextOffsets([{'offset': event.data.offset,
                             'context': `${event.data.majorVersion}_${event.data.minorVersion}` }]);
 
+        /* not needed anymore, topLevelReaders validate BVM and go first
         if (topLevelReaderStarted === false) {
           // start top-level-worker
           bsr_toplevel.setBufferSize(bytesToBuffer);
+          console.log(`bsr_toplevel fillBuffer ${event.data.offset} (!topLevelReaderStarted)`);
           bsr_toplevel.fillBuffer(4, event.data.offset).then(value => {
             let buf = bsr_toplevel.biBuffer;
             sendBufferToWorker(topLevelWorker, buf, event.data.offset, {"context": "unknown"});
           });
           topLevelReaderStarted = true;
-        }
+        }*/
       } else if (event.data.action === "done") {
         workerOffsets.push({
                               "workerNum": i,
                               "offsetStart": event.data.offset,
                               "offsetFinish": event.data.offset + event.data.size,
-                              "symbolTables": event.data.symbolTables,
-                              "symbolsToAdd": event.data.symbolsToAdd,
                               "processed": false
                             });
 
@@ -219,26 +413,6 @@ function createReaderWorkers(numWorkers, workerSize) {
         let currentPointer = 0;
         while (currentPointer !== workerOffsets.length) {
           if (workerOffsets[currentPointer].offsetStart === lastProcessed) {
-            // add symbol tables
-            for (let j = 0; j < event.data.symbolTables.length; ++j) {
-              if (event.data.symbolTables[j].append === false) {
-                addSymbolTable(event.data.symbolTables[j]);
-              }
-              stats.addSymbolTable(event.data.symbolTables[j]);
-            }
-
-            // add symbols
-            let symbolsToAdd = workerOffsets[currentPointer].symbolsToAdd;
-            
-            for (let j = 0; j < symbolsToAdd.length; ++j) {
-              let symbolTable = getSymbolTable(symbolsToAdd[j].position+workerOffsets[currentPointer].offsetStart);
-              if (symbolTable !== null) {
-                let symbolID = symbolTable.addSymbol(symbolsToAdd[j].symbolString, 
-                                                    symbolsToAdd[j].position+workerOffsets[currentPointer].offsetStart);
-              } else {
-                // TODO: ERROR - no symbol table
-              }
-            }
 
             // add symbol usages
 
@@ -248,7 +422,6 @@ function createReaderWorkers(numWorkers, workerSize) {
             //}
 
             // clear arrays and set processed
-            workerOffsets[currentPointer].symbolTables = null;
             workerOffsets[currentPointer].symbolsToAdd = null;
             workerOffsets[currentPointer].processed = true;
 
@@ -259,50 +432,11 @@ function createReaderWorkers(numWorkers, workerSize) {
           }
         }
 
-        let symbols = [];
-        let offsets = [];
-        let uses = [];
-        for (let i = 0; i < symbolTables.length; ++i) {
-          symbols.push(symbolTables[i].table.symbols);
-          offsets.push(symbolTables[i].table.meta);
-          uses.push(symbolTables[i].table.usageCounts);
-        }
         postMessage({'action': 'workerReaderFinishedBuffer', 'offset': event.data.offset, 'size': event.data.size,
-                     'stats': stats.stats, 'symbolTables': symbols, 'symbolOffsets': offsets, 'symbolUses': uses });
+                     'stats': stats.stats });
 
         availableWorkers.push(self);
         checkReaderWorkers();
-      } else if (event.data.action === "nibbles") {
-        let nibbles = event.data.nibblesToDisplay;
-        for (let i = 0; i < nibbles.length; ++i) {
-          let offset = nibbles[i].offset;
-          let symbolTable = getSymbolTable(offset);
-          if (nibbles[i].fieldName !== null) {
-            if (symbolTable !== null) {
-              nibbles[i].fieldName.symbolValue = symbolTable.getSymbolValue(nibbles[i].fieldName.symbolMagnitude, offset);
-            } else {
-              // TODO: ERROR - no symbol table
-            }
-          }
-          if (nibbles[i].annotation.annotations !== undefined) {
-            let annotations = nibbles[i].annotation.annotations;
-            for (let j = 0; j < annotations.length; ++j) {
-              if (symbolTable !== null) {
-                annotations[j].symbolValue = symbolTable.getSymbolValue(annotations[j].symbolMagnitude, offset);
-              } else {
-                // TODO: ERROR - no symbol table
-              }
-            }
-          }
-          if (nibbles[i].element.typeValue === IonTypes['symbol']) {
-            if (symbolTable !== null) {
-              nibbles[i].element.representation = symbolTable.getSymbolValue(nibbles[i].element.details, offset);
-            } else {
-              // TODO: ERROR - no symbol table
-            }
-          }
-        };
-        postMessage({'action': 'nibblesToDisplay', 'nibbles': nibbles, 'target': event.data.target });
       }
     };
     workers[i].onerror = (error) => {
@@ -315,31 +449,70 @@ function createReaderWorkers(numWorkers, workerSize) {
 createReaderWorkers(numWorkers, bytesToBuffer);
 
 function checkReaderWorkers(offsetToStart, buffer) {
-  if (topLevelReaderDone === false) {
-    return;
-  }
+  //if (topLevelReaderDone === false) {
+  //  return;
+  //}
   if (availableWorkers.length > 0 && readerSliceOffsets.length > 0) {
     let readerWorker;
     let sliceOffset;
+    let inLargeContainer = false;
+    let sliceLongElements;
+    let sliceLongStack = null;
+    let sliceLongNext = null;
     let context;
+    /* TODO: Does reusing a buffer (as below) save any appreciable time?
     if (offsetToStart !== undefined && buffer !== undefined) {
+      console.log(`checkReaderWorkers_b ${availableWorkers} ${readerSliceOffsets}`);
       readerWorker = availableWorkers.shift();
-      //sliceOffset = readerSliceOffsets.pop();
       sliceOffset = readerSliceOffsets.shift(); 
+      sliceLongElements = readerSliceLongElements.shift();
       if (sliceOffset !== offsetToStart) {
         throw new Error(`worker-coordinator: expected sliceOffset ${sliceOffset} to equal offsetToStart ${offsetToStart}`);
       }
+      // set the buffer size to the exact size between top level values
+      let exactSize;
+      if (readerSliceOffsets.length > 0 || (fileStats - sliceOffset) < BYTES_TO_BUFFER) {
+        exactSize = readerSliceOffsets[0] - sliceOffset;
+      } else {
+        //exactSize = fileStats - sliceOffset;
+        return;
+      }
+      if (exactSize < 0) {
+        throw new Error(`worker-coordinator: checkReaderWorkers buffer size is ${exactSize}`);
+      }
+      if (exactSize > BYTES_TO_BUFFER) {
+        throw new Error(`worker-coordinator: checkReaderWorkers buffer size is ${exactSize}`);
+      }
+      if (sliceLongElements && sliceLongElements[0] !== null) {
+        inLargeContainer = true;
+      }
+      if (inLargeContainer === true) {
+        sliceLongStack = sliceLongElements[0];
+        sliceLongNext = sliceLongElements[1];
+      }
       context = contextForOffset(sliceOffset);
-      sendBufferToWorker(readerWorker, buffer, sliceOffset, {'context': context});
-    } else if (bsr.isReady === true) {
+      sendBufferToWorker(readerWorker, buffer, sliceOffset, {'context': context, 'inLargeContainer': inLargeContainer, 
+                                                             'longElementStack': sliceLongStack,
+                                                             'longElementStackNext': sliceLongNext,
+                                                             'exactSize': exactSize});
+    } else*/ 
+    if (bsr.isReady === true) {
+      console.log(`checkReaderWorkers_r ${availableWorkers} ${readerSliceOffsets}`);
       readerWorker = availableWorkers.shift();
       sliceOffset = readerSliceOffsets.shift();
+      sliceLongElements = readerSliceLongElements.shift();
       context = contextForOffset(sliceOffset);
       // set the buffer size to the exact size between top level values
       let exactSize;
       if (readerSliceOffsets.length > 0) {
         exactSize = readerSliceOffsets[0] - sliceOffset;
       } else {
+        if (fileStats - sliceOffset > BYTES_TO_BUFFER) {
+          availableWorkers.unshift(readerWorker);
+          readerSliceOffsets.unshift(sliceOffset);
+          readerSliceLongElements.unshift(sliceLongElements);
+          return;
+        }
         exactSize = fileStats - sliceOffset;
       }
       if (exactSize < 0) {
@@ -348,14 +521,24 @@ function checkReaderWorkers(offsetToStart, buffer) {
       if (exactSize > BYTES_TO_BUFFER) {
         throw new Error(`worker-coordinator: checkReaderWorkers buffer size is ${exactSize}`);
       }
+      if (sliceLongElements && sliceLongElements[0] !== null) {
+        inLargeContainer = true;
+      }
+      if (inLargeContainer === true) {
+        sliceLongStack = sliceLongElements[0];
+        sliceLongNext = sliceLongElements[1];
+      }
       bsr.setBufferSize(exactSize);
-      console.log(`## ${sliceOffset} + ${exactSize} = ${sliceOffset+exactSize}`);
+      //console.log(`## ${sliceOffset} + ${exactSize} = ${sliceOffset+exactSize}`);
       bsr.fillBuffer(4, sliceOffset).then(value => {
         let buf = bsr.biBuffer;
         let options = {
+          'verify': VERIFY,
           'inspect': false,
-          'suppressSymbolTables': false,
-          'context': context
+          'context': context,
+          'inLargeContainer': inLargeContainer, 
+          'longElementStack': sliceLongStack,
+          'longElementStackNext': sliceLongNext
         };
         sendBufferToWorker(readerWorker, buf, sliceOffset, options);
         checkReaderWorkers();
@@ -399,7 +582,10 @@ function sendBufferToWorker (worker, buffer, offsetInFile, options) {
 onmessage = (event) => {
   switch (event.data.action) {
     case 'loadFile':
+      topLevelOffsets = [0];
+      checkpoints = [];
       readerSliceOffsets = [];
+      readerSliceLongElements = [];
       workerOffsets = [];
       lastProcessed = 0;
       t0 = performance.now();
@@ -408,6 +594,7 @@ onmessage = (event) => {
       let file = event.data.file;
       fileStats = bsr.loadFile(file);
       bsr_toplevel.loadFile(file);
+      bsr_inspect.loadFile(file);
       readingFinished = false;
     
       bsr.readerOnLoadEndCallback = callbackCheckReaderWorkers;
@@ -415,7 +602,18 @@ onmessage = (event) => {
       // notify the main thread of the size of the file
       postMessage({'action': 'loaded', 'fileStats': fileStats});
 
+      addCheckpoint(new Checkpoint(0, null));
+
+      bsr_toplevel.setBufferSize(bytesToBuffer);
+
+      console.log(`bsr_toplevel fillBuffer 0 (loadFile)`);
+      bsr_toplevel.fillBuffer(4, 0).then(value => {
+        let buf = bsr_toplevel.biBuffer;
+        sendBufferToWorker(topLevelWorker, buf, 0, {"context": "unknown"});
+      });
+
       // start worker-reader
+      /*
       bsr.setBufferSize(INSPECT_BYTES_TO_BUFFER);
       bsr.fillBuffer(4, 0).then(value => {
         let buf = bsr.biBuffer;
@@ -426,7 +624,7 @@ onmessage = (event) => {
           'validateBVMExists': true
         };
         sendBufferToWorker(readerWorker, buf, 0, options);
-      });
+      });*/
       break;
     // takes an array of symbol ids
     case 'exploreSymbols':
@@ -438,24 +636,27 @@ onmessage = (event) => {
     // takes an offset in bytes, a target number of bytes before the offset to find the nearest top level value,
     // and a total number of bytes to return
     case 'exploreBinary':
-      let nearestOffsetIndex = findNearestTopLevelOffset(event.data.offset);
-      if (availableWorkers.length === 0) {
-        console.log(`worker-coordinator: no readerWorkers available.`);
-        break;
+      let nearestCheckpoint = findNearestCheckpoint(event.data.offset);
+      let nearestOffsetIndex = nearestCheckpoint.offset;
+      let isInLargeContainer = !!nearestCheckpoint.elementStack && nearestCheckpoint.elementStack.length !== 0;
+
+      if (bsr_inspect.isReady === false) {
+        throw new Error(`worker-coordinator: exploreBinary - bsr_inspect.isReady === false`);
       }
-      if (bsr.isReady === false) {
-        throw new Error(`worker-coordinator: exploreBinary - bsr.isReady === false`);
-      }
-      bsr.setBufferSize(INSPECT_BYTES_TO_BUFFER);
-      bsr.fillBuffer(4, nearestOffsetIndex).then(value => {
-        let buf = bsr.biBuffer;
-        let readerWorker = availableWorkers.shift();
+      bsr_inspect.setBufferSize(BYTES_TO_BUFFER);
+      bsr_inspect.fillBuffer(4, nearestOffsetIndex).then(value => {
+        let buf = bsr_inspect.biBuffer;
         let options = {
-          'inspect': true,
-          'suppressSymbolTables': true,
-          'context': contextForOffset(nearestOffsetIndex)
+          'verify': VERIFY,
+          'context': contextForOffset(nearestOffsetIndex),
+          'rangeStart': event.data.offset,
+          'rangeEnd': event.data.offset + INSPECT_BYTES,
+          'inLargeContainer': isInLargeContainer,
+          'longElementStack': (nearestCheckpoint.elementStack !== null) ? 
+                                nearestCheckpoint.elementStack.toArrays() :
+                                undefined
         };
-        sendBufferToWorker(readerWorker, buf, nearestOffsetIndex, options);
+        sendBufferToWorker(inspectWorker, buf, nearestOffsetIndex, options);
       });
       break;
     case 'setNumWorkers':

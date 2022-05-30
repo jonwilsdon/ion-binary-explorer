@@ -6,40 +6,54 @@ const TypeDescriptorReader = BITE.TypeDescriptorReader;
 const ByteBufferReader = BITE.ByteBufferReader;
 const ScalarValueReader = BITE.ScalarValueReader;
 const ElementReference = BITE.ElementReference;
-const Verifier = BITE.Verifier;
 const IonElement = BITE.IonElement;
 const utilities = BITE.utilities;
-const Analyzer = BITE.Analyzer;
+const Inspector = BITE.Inspector;
 const IonTypes = BITE.IonTypes;
-
-let number = -1;
 
 let bufferReader = null;
 let readerSize = null;
 let typeReader = null;
 let scalarReader = null;
-let stats = null;
-
-let symbolsUsage = [];
+let inspector = null;
 
 let elementStack, inSymbolTableDefinition, inSymbolList, currentElement;
 
-function readAll(buffer, offset, totalFileSize, options) {
-  symbolsUsage = [];
+let offsetInFile = 0;
+let target = 0;
 
-  let bufferOffset = (offset === undefined) ? 0 : offset; 
+// takes in a buffer, reads bytes in range (outside beginning range, inside ending range)
+// example: buffer size 1300, range start 50, range end 150, with 100 13-byte values
+//          would return values at 39, 52, 65, 78, 91, 104, 117, 130, and 143
+function read(buffer, offset, totalFileSize, options) {
+
+  console.log(`inspect-worker: read ${offset}`);
+  let nibblesToDisplay = [];
+  let bufferOffset = (offset === undefined) ? 0 : offset;
+
+  let context = "unknown";
+  if (options.context !== undefined) {
+    context = options.context;
+  }
 
   bufferReader = new ByteBufferReader();
   bufferReader.loadBuffer(buffer);
   readerSize = bufferReader.size;
-  let bytesRead = readerSize;
   typeReader = new TypeDescriptorReader(bufferReader);
   scalarReader = new ScalarValueReader(bufferReader);
-  stats = new Analyzer();
+  inspector = new Inspector();
 
   let exactSize = (options.exactSize !== undefined) ? options.exactSize : readerSize;
+  let rangeStart = options.rangeStart;
+  let rangeEnd = options.rangeEnd;
 
-  let verify = !!options.verify;
+  if (rangeStart === undefined || rangeEnd === undefined) {
+    throw new Error("Range start and range end must be defined");
+  }
+
+  let relativeStart = rangeStart - offset;
+  let relativeEnd = rangeEnd - offset;
+
   let inLargeContainer = !!options.inLargeContainer;
   let longElementOffset = null;
   let longElementStack = null;
@@ -61,8 +75,8 @@ function readAll(buffer, offset, totalFileSize, options) {
       } else {
         let elemRef = longStack[i];
         if (i === (longStack.length-1)) {
-          elemRef = [offset, 0, elemRef[2], elemRef[3],
-                     elemRef[4], elemRef[5], elemRef[6]];
+          elemRef = [elemRef[0], 0, elemRef[2], elemRef[3],
+                     elemRef[4], elemRef[5], undefined];
         } else {
           isFromLongElement.push(true);
         }
@@ -73,68 +87,61 @@ function readAll(buffer, offset, totalFileSize, options) {
   } else {
     // usually descend only to symbol definitions in symbol tables
     for (let i = 0; i < 3; ++i) {
-      elementStack.push(new IonElement([offset, 0,0, totalFileSize-offset, null, null, undefined]));
+      elementStack.push(new IonElement([offset, 0, 0, totalFileSize-offset, null, null, undefined]));
     }
     currentElement = elementStack[0];
   }
 
-  let verifier;
-  if (verify === true) {
-    verifier = new Verifier((inLargeContainer) ? elementStack.slice(0, options.longElementStack.length) : [],
-                            bytesRead, true, true);
-  }
-
-  let context = "unknown";
-  if (options.context !== undefined) {
-    context = options.context;
+  if (relativeEnd > exactSize) {
+    //throw new Error("RangeEnd larger than buffer size");
+    relativeEnd = exactSize;
   }
 
   while (true) {
     try {
       let returnValue = currentElement.readTypeDescriptor(typeReader, context);
 
-      // done reading the buffer!
-      if (returnValue === null || currentElement.relativeOffset >= exactSize) {
-        if (verify === true) {
-          verifier.atEnd(0);
-        }
+      // done reading the buffer or the range!
+      if (returnValue === null || currentElement.relativeOffset >= relativeEnd) {
         break;
       }
+
     } catch (error) {
-      console.log(`Error! bufferOffset: ${bufferOffset} currentElement: ${currentElement.toString()}`);
+      console.log(`Error! bufferOffset: ${bufferOffset}  currentElement: ${currentElement.toString()}`);
       throw error;
     }
 
-    stats.trackElement(currentElement, bufferOffset);
-
     if (currentElement.type === IonTypes["bvm"]) {
       context = `${currentElement.majorVersion}_${currentElement.minorVersion}`;
+    }
+
+    let bytesUpToRepresentation = currentElement.totalLength;
+
+    if (currentElement.isContainer && currentElement.bytePositionOfRepresentation !== null) {
+      bytesUpToRepresentation = currentElement.bytePositionOfRepresentation - currentElement.relativeOffset;
+    }
+
+    if (currentElement.relativeOffset + bytesUpToRepresentation > readerSize) {
+      break;
+    }
+
+    // are we in the range?
+    if (relativeStart < currentElement.relativeOffset + currentElement.totalLength &&
+        relativeEnd > currentElement.relativeOffset) {
+      // in range, inspect element
+      let rawBytes = bufferReader.rawBytes(currentElement.relativeOffset, bytesUpToRepresentation);
+      inspector.inspectElement(currentElement, rawBytes, scalarReader, bytesUpToRepresentation, bufferOffset);
     }
 
     if (currentElement.isLocalSymbolTable === true || currentElement.isSharedSymbolTable === true) {
       inSymbolTableDefinition = true;
     }
 
-    if (currentElement.fieldNameSymbolID !== undefined) {
-      symbolsUsage.push({ 'symbolID': currentElement.fieldNameSymbolID,
-                          'position': currentElement.bytePositionOfRepresentation || currentElement.relativeOffset });
-    }
-
-    if (currentElement.type === IonTypes["symbol"]) {
-      let symbolID = (currentElement.bytePositionOfRepresentation === null) ?
-                          currentElement.varUIntLength :
-                          utilities.readScalarFromElement(currentElement, scalarReader);
-      
-      symbolsUsage.push({ 'symbolID': symbolID,
-                          'position': currentElement.bytePositionOfRepresentation || currentElement.relativeOffset });
-    }
-
-    // TODO: report offset as position of firstAnnotation instead of element offset
-    if (currentElement.firstAnnotation !== null) {
-      symbolsUsage.push({ 'symbolID': currentElement.firstAnnotation.magnitude,
-                          'position': currentElement.relativeOffset });
-      // TODO: report other annotations
-      // while ()
+    if (inSymbolTableDefinition === true) {
+      // check the field name, see if it is 'symbols'
+      if (currentElement.depth === 1 && currentElement.fieldNameSymbolID === 7) {
+        inSymbolList = true;
+      }
     }
 
     // contains elements
@@ -147,23 +154,27 @@ function readAll(buffer, offset, totalFileSize, options) {
         elementStack.push(new IonElement([offset, 0, 0, readerSize, null, null, undefined]));
       }
       currentElement = elementStack[elemDef[2]];
-      if (verify === true) {
-        verifier.verifyElement(elemDef);
+
+      // 1- relativeOffset
+      if (elemDef[1] > readerSize) {
+        break;
       }
+      
       currentElement.repurpose(elemDef);
     }
     // contains no elements, but not the last at its depth
     else if (currentElement.nextElementReference !== undefined &&
              currentElement.nextElementReference !== null) {
-      if (verify === true) {
-        verifier.verifyElement(currentElement.nextElementReference);
+      // 1- relativeOffset
+      if (currentElement.nextElementReference[1] > readerSize) {
+        break;
       }
+
       currentElement.repurpose(currentElement.nextElementReference);
     }
     // contains no elements, last at its depth
     else {
 
-      let initialLength = currentElement.totalLength;
       while (currentElement.depth > 0) {
         if (isFromLongElement !== null && isFromLongElement.length >= (currentElement.depth-1)) {
           isFromLongElement[currentElement.depth-1] = false;
@@ -195,8 +206,10 @@ function readAll(buffer, offset, totalFileSize, options) {
 
       if (currentElement.nextElementReference !== undefined &&
           currentElement.nextElementReference !== null) {
-        if (verify === true) {
-          verifier.verifyElement(currentElement.nextElementReference);
+
+        // 1- relativeOffset
+        if (currentElement.nextElementReference[1] > readerSize) {
+          break;
         }
         currentElement.repurpose(currentElement.nextElementReference);
       }
@@ -211,41 +224,38 @@ function readAll(buffer, offset, totalFileSize, options) {
             throw new Error("Not at end of stream");
           }
         } else {
-          if (!(bufferReader.atEnd(currentElement.relativeOffset + currentElement.totalLength) || 
-              (offset + bytesRead === totalFileSize))) {
+          if (!(bufferReader.atEnd(currentElement.relativeOffset + currentElement.totalLength))) {
             throw new Error("Not at end of stream");
           }
         }
 
-        if (verify === true) {
-          verifier.atEnd(initialLength);
-        }
         currentElement = undefined;
         break;
       }
     }
   }
 
-  postMessage({'action': 'done',/*
-               'symbolsUsage': symbolsUsage,*/
-               'stats': stats.stats,
-               'offset': offset,
-               'size': bytesRead,
-               'context': context });
+  console.log(`inspect-worker readAll done.`);
+
+  postMessage({'action': 'nibbles',
+               'nibblesToDisplay': inspector.nibblesToDisplay,
+               'offset': offset });
+
+  postMessage({'action': 'done',
+               'offset': offset });
 }
 
 onmessage = (event) => {
   switch (event.data.action) {
-    case 'readAll':
-      readAll(event.data.biBuffer, event.data.offset);
-      break;
     case 'read':
-      readAll(event.data.buffer, event.data.offsetInFile, event.data.totalFileSize, event.data.options);
+      console.log(`inspect-worker received: ${JSON.stringify(event.data)}`);
+      read(event.data.buffer, event.data.offsetInFile, event.data.totalFileSize, event.data.options);
       break;
-    case 'number':
-      number = event.data.value;
+    case 'setOffset':
+      offsetInFile = event.data.offset;
+      target = event.data.actual;
       break;
     default:
-      console.log(`worker-reader: unknown event ${JSON.stringify(event.data)}`);
+      console.log(`inspect-worker: unknown event ${JSON.stringify(event.data)}`);
   }
 }
