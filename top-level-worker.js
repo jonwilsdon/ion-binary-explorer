@@ -108,7 +108,6 @@ function read(buffer, offsetInFile, totalFileSize, options) {
             verifier.verifyStack(longElementStack, true);
             verifier.atEnd(currentElement.totalLength);
           }
-          break;
         }
         break;
       }
@@ -123,8 +122,16 @@ function read(buffer, offsetInFile, totalFileSize, options) {
     }
 
     if (currentElement.depth === 0) {
-      if (topLevelOffsets.length === 0 || 
-          currentElement.absoluteOffset - topLevelOffsets[topLevelOffsets.length-1] > 1000000) {
+      if (topLevelOffsets.length === 0) {
+        topLevelOffsets.push(currentElement.absoluteOffset);
+      // check if this element is not larger than the buffer by itself, but does go past the end of the buffer
+      // if so, the values will be read in the next buffer
+      } else if (currentElement.totalLength < bufferReader.size &&
+                 currentElement.totalLength + currentElement.relativeOffset > bufferReader.size) {
+        topLevelOffsets.push(currentElement.absoluteOffset);
+        break;
+      // it has been more than a magic number of bytes since the last top level offset
+      } else if (currentElement.absoluteOffset - topLevelOffsets[topLevelOffsets.length-1] > 1000000) {
         topLevelOffsets.push(currentElement.absoluteOffset);
       }
     }
