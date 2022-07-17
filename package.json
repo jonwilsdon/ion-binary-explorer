@@ -1,0 +1,31 @@
+{
+  "name": "ion-binary-explorer",
+  "version": "0.0.1",
+  "description": "Explores Ion Binary files.",
+  "main": "index.js",
+  "dependencies": {},
+  "devDependencies": {
+    "chai": "^4.3.6",
+    "mocha": "^10.0.0"
+  },
+  "scripts": {
+    "test": "mocha"
+  },
+  "mocha": {
+    "check-leaks": true,
+    "diff": true,
+    "extension": ["js"],
+    "recursive": true,
+    "watch-files": ["test/**/*.js"]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jonwilsdon/ion-binary-explorer.git"
+  },
+  "author": "Jon Wilsdon",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/jonwilsdon/ion-binary-explorer/issues"
+  },
+  "homepage": "https://github.com/jonwilsdon/ion-binary-explorer#readme"
+}
