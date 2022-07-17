@@ -6,9 +6,11 @@ const IonTypes = require('./IonTypes').IonTypes;
 /**
  * Reads the type descriptor
  * 
+ * @summary
  * A value consists of a one-octet type descriptor, possibly followed by a length in octets, possibly followed
  * by a representation.
  * 
+ * @example
  *        7       4 3       0
  *       +---------+---------+
  * value |    T    |    L    |
@@ -17,6 +19,8 @@ const IonTypes = require('./IonTypes').IonTypes;
  *       +==========================+
  *       :      representation      :
  *       +==========================+
+ * 
+ * @description
  * The type descriptor octet has two subfields: a four-bit type code T, and a four-bit length L.
  * 
  * Each value of T identifies the format of the representation, and generally (though not always) identifies an
