@@ -14,9 +14,13 @@
   "mocha": {
     "check-leaks": true,
     "diff": true,
-    "extension": ["js"],
+    "extension": [
+      "js"
+    ],
     "recursive": true,
-    "watch-files": ["test/**/*.js"]
+    "watch-files": [
+      "test/**/*.js"
+    ]
   },
   "repository": {
     "type": "git",
