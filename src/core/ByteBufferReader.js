@@ -3,7 +3,7 @@
 const br = require('./ByteReader');
 
 /**
- * Reads bytes from a buffer.
+ * Reads bytes from a buffer.  
  * Extends ByteReader interface.
  */
 class ByteBufferReader extends br.ByteReader {
@@ -24,7 +24,7 @@ class ByteBufferReader extends br.ByteReader {
    * Loads a buffer into the ByteBufferReader.
    * 
    * @param {ArrayBuffer | Uint8Array} buffer
-   * @throws Error if the buffer does not exist.
+   * @throws `Error` if the buffer does not exist.
    * @returns {Number} the number of bytes in the buffer
    */
   loadBuffer (buffer) {
@@ -54,8 +54,8 @@ class ByteBufferReader extends br.ByteReader {
    * Moves the current position forward by 1 byte.
    * 
    * @returns {null | UInt8}
-   * - null if the current position is currently at the end of the buffer
-   * - the UInt8 at that position in the buffer
+   * - `null` if the current position is currently at the end of the buffer
+   * - `UInt8` byte at the position in the buffer
    */
   nextByte () {
     if (this.atEnd()) {
@@ -79,7 +79,7 @@ class ByteBufferReader extends br.ByteReader {
   }
 
   /**
-   * Skips forward the specified number of bytes.
+   * Skips forward the specified number of bytes.  
    * Note: This function does not check if the number of bytes to skip are valid.
    * 
    * @param {Number} numBytesToSkip The number of bytes for the reader to skip over.
@@ -89,7 +89,7 @@ class ByteBufferReader extends br.ByteReader {
   }
 
   /**
-   * Sets the position in the buffer to be the byte number passed in.
+   * Sets the position in the buffer to be the byte number passed in.  
    * Note: This function does not check if the position to set is valid.
    * 
    * @param {Number} positionToSet The new position to set the reader to.
@@ -100,11 +100,11 @@ class ByteBufferReader extends br.ByteReader {
 
   /**
    * Checks if the specified position is exactly at the end of the buffer.
-   * Throws an error if the position is beyond the end of the buffer.
    * @param {Number} position The position to check.
    * @returns {Boolean}
-   * - true if the position is at the end of the buffer
-   * - false if the position is still within the buffer
+   * - `true` if the position is at the end of the buffer
+   * - `false` if the position is still within the buffer
+   * - `null` if the position is past the end of the buffer
    */
   atEnd (position) {
     if (typeof position === "bigint") {
