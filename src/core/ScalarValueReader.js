@@ -37,13 +37,13 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br 
+   * @param {ByteReader} reader 
    * @returns {Number} the magnitude of the positive Int
    */
-  #readInt = function (position, length, br) {
-    br.setPosition(position);
+  #readInt = function (position, length, reader) {
+    reader.setPosition(position);
 
-    const value = br.readUInt(length).magnitude;
+    const value = reader.readUInt(length).magnitude;
 
     if (((length > 3) && value === 0n) || value === 0) {
       // TODO: Warn that a zero is stored with extra padding
@@ -67,13 +67,13 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br 
+   * @param {ByteReader} reader 
    * @returns {Number} the magnitude of the negative Int
    */
-  #readNegativeInt = function (position, length, br) {
-    br.setPosition(position);
+  #readNegativeInt = function (position, length, reader) {
+    reader.setPosition(position);
 
-    const value = br.readUInt(length).magnitude;
+    const value = reader.readUInt(length).magnitude;
     
     if (((length > 3) && value === 0n) || value === 0) {
       // TODO: pass the error to the caller
@@ -98,12 +98,12 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br 
+   * @param {ByteReader} reader 
    * @returns 
    * - `null` if not enough bytes available to read the representation
    * - `Object` with exponent and coefficient properties
    */
-  #readFloat = function (position, length, br) {
+  #readFloat = function (position, length, reader) {
     if (length !== 4 && length !== 8) {
       // TODO: pass the error to the caller
       const err = new Error(`ScalarValueReader illegal float length ${length}.`);
@@ -111,13 +111,13 @@ class ScalarValueReader {
     }
 
     const buffer = new Uint8Array(length);
-    br.setPosition(position);
+    reader.setPosition(position);
     for (let i = 0; i < length; ++i) {
-      buffer[i] = br.nextByte();
+      buffer[i] = reader.nextByte();
 
       // not enough bytes available, reset reader position (i), propagate null
       if (buffer[i] === null) {
-        br.skipBytes(-1 * i);
+        reader.skipBytes(-1 * i);
         return null;
       }
     }
@@ -152,15 +152,15 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br
+   * @param {ByteReader} reader
    * @returns 
    * - `null` if not enough bytes available to read the representation
    * - `Object` with exponent and coefficient properties
    */
-  #readDecimal = function (position, length, br) {
-    br.setPosition(position);
+  #readDecimal = function (position, length, reader) {
+    reader.setPosition(position);
 
-    const exponent = br.readVarInt();
+    const exponent = reader.readVarInt();
 
     // not enough bytes available, propagate null
     if (exponent === null) {
@@ -180,11 +180,11 @@ class ScalarValueReader {
       // coefficient is positive 0
       coefficient = { magnitude: 0, numBytesRead: 0, isNegative: false };
     } else {
-      coefficient = br.readInt(coefficientLength);
+      coefficient = reader.readInt(coefficientLength);
 
       // not enough bytes available, reset reader position (coefficient), propagate null
       if (coefficient === null) {
-        br.skipBytes(-1 * exponent.numBytesRead);
+        reader.skipBytes(-1 * exponent.numBytesRead);
         return null;
       }
 
@@ -228,14 +228,14 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br
+   * @param {ByteReader} reader
    * @returns 
    * - `null` if not enough bytes available to read the representation
    * - `Object` with offset, year, month, day, hour, minute, second, fractionExponent, and fractionCoefficient 
    * properties
    */
-  #readTimestamp = function (position, length, br) {
-    br.setPosition(position);
+  #readTimestamp = function (position, length, reader) {
+    reader.setPosition(position);
 
     let remainingLength = length;
     let offset;
@@ -251,7 +251,7 @@ class ScalarValueReader {
     // two mandatory components: offset and year
     // TODO: warn if offset is less than -720 (-12 hours) or more than 840 (+14 hours)
     //       warn if offset is more than 2 bytes (-8191, 8191) -^
-    offset = br.readVarInt();
+    offset = reader.readVarInt();
 
     // not enough bytes available, propagate null
     if (offset === null) {
@@ -260,22 +260,22 @@ class ScalarValueReader {
 
     remainingLength -= offset.numBytesRead;
 
-    year = br.readVarUInt();
+    year = reader.readVarUInt();
 
     // not enough bytes available, propagate null
     if (year === null) {
-      br.skipBytes(-1 * (length - remainingLength));
+      reader.skipBytes(-1 * (length - remainingLength));
       return null;
     }
 
     remainingLength -= year.numBytesRead;
 
     if (remainingLength > 0) {
-      month = br.readVarUInt();
+      month = reader.readVarUInt();
 
       // not enough bytes available, propagate null
       if (month === null) {
-        br.skipBytes(-1 * (length - remainingLength));
+        reader.skipBytes(-1 * (length - remainingLength));
         return null;
       }
 
@@ -284,11 +284,11 @@ class ScalarValueReader {
 
     // TODO: warn on days that are impossible (>31)
     if (remainingLength > 0) {
-      day = br.readVarUInt();
+      day = reader.readVarUInt();
 
       // not enough bytes available, propagate null
       if (day === null) {
-        br.skipBytes(-1 * (length - remainingLength));
+        reader.skipBytes(-1 * (length - remainingLength));
         return null;
       }
 
@@ -298,11 +298,11 @@ class ScalarValueReader {
     // hour and minute are considered a single component
     if (remainingLength > 0) {
       // TODO: warn on hours that are impossible (>24)
-      hour = br.readVarUInt();
+      hour = reader.readVarUInt();
 
       // not enough bytes available, propagate null
       if (hour === null) {
-        br.skipBytes(-1 * (length - remainingLength));
+        reader.skipBytes(-1 * (length - remainingLength));
         return null;
       }
 
@@ -310,11 +310,11 @@ class ScalarValueReader {
 
       if (remainingLength > 0) {
         // TODO: warn on minutes that are impossible (>60)
-        minute = br.readVarUInt();
+        minute = reader.readVarUInt();
 
         // not enough bytes available, propagate null
         if (minute === null) {
-          br.skipBytes(-1 * (length - remainingLength));
+          reader.skipBytes(-1 * (length - remainingLength));
           return null;
         }
 
@@ -329,11 +329,11 @@ class ScalarValueReader {
 
     if (remainingLength > 0) {
       // TODO: warn on seconds that are impossible
-      second = br.readVarUInt();
+      second = reader.readVarUInt();
 
       // not enough bytes available, propagate null
       if (second === null) {
-        br.skipBytes(-1 * (length - remainingLength));
+        reader.skipBytes(-1 * (length - remainingLength));
         return null;
       }
 
@@ -341,11 +341,11 @@ class ScalarValueReader {
     }
 
     if (remainingLength > 0) {
-      fractionExponent = br.readVarInt();
+      fractionExponent = reader.readVarInt();
 
       // not enough bytes available, propagate null
       if (fractionExponent === null) {
-        br.skipBytes(-1 * (length - remainingLength));
+        reader.skipBytes(-1 * (length - remainingLength));
         return null;
       }
 
@@ -353,11 +353,11 @@ class ScalarValueReader {
     }
 
     if (remainingLength > 0) {
-      fractionCoefficient = br.readInt(remainingLength);
+      fractionCoefficient = reader.readInt(remainingLength);
 
       // not enough bytes available, propagate null
       if (fractionCoefficient=== null) {
-        br.skipBytes(-1 * (length - remainingLength));
+        reader.skipBytes(-1 * (length - remainingLength));
         return null;
       }
 
@@ -385,19 +385,19 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br 
+   * @param {ByteReader} reader 
    * @returns 
    * - `null` if not enough bytes available to read the representation
    * - `Number` the Symbol ID
    */
-  #readSymbol = function (position, length, br) {
+  #readSymbol = function (position, length, reader) {
     if (length < 1) {
       return 0;
     }
   
-    br.setPosition(position);
+    reader.setPosition(position);
 
-    const symbol = br.readUInt(length);
+    const symbol = reader.readUInt(length);
 
     // not enough bytes available, propagate null
     if (symbol === null) {
@@ -422,20 +422,20 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br
+   * @param {ByteReader} reader
    * @returns 
    * - `null` if not enough bytes available to read the representation
    * - `String` the UTF8 string
    */
-  #readString = function (position, length, br) {
+  #readString = function (position, length, reader) {
     const bytes = new Uint8Array(length);
-    br.setPosition(position);
+    reader.setPosition(position);
     for (let i = 0; i < length; ++i) {
-      bytes[i] = br.nextByte();
+      bytes[i] = reader.nextByte();
 
       // not enough bytes available, propagate null
       if (bytes[i] === null) {
-        br.skipBytes(-1 * i);
+        reader.skipBytes(-1 * i);
         return null;
       }
     }
@@ -444,7 +444,7 @@ class ScalarValueReader {
   };
 
   /**
-   * Reads the representation (data) of a Clob value.
+   * Reads the representation (data) of a Clob or Blob value.
    * 
    * @example
    *             7       4 3       0
@@ -455,32 +455,6 @@ class ScalarValueReader {
    *            +==========================+
    *            :       data [Bytes]       :
    *            +==========================+
-   * 
-   * @param {Number} position 
-   * @param {Number} length 
-   * @param {ByteReader} br 
-   * @returns 
-   * - `null` if not enough bytes available to read the representation
-   * - `Uint8Array` buffer of the Clob bytes
-   */
-  #readClob = function (position, length, br) {
-    const buffer = new Uint8Array(length);
-    br.setPosition(position);
-    for (let i = 0; i < length; ++i) {
-      buffer[i] = br.nextByte();
-
-      // not enough bytes available, propagate null
-      if (buffer[i] === null) {
-        br.skipBytes(-1 * i);
-        return null;
-      }
-    }
-
-    return buffer;
-  };
-
-  /**
-   * Reads the representation (data) of a Blob value.
    * 
    * @example
    *             7       4 3       0
@@ -494,20 +468,20 @@ class ScalarValueReader {
    * 
    * @param {Number} position 
    * @param {Number} length 
-   * @param {ByteReader} br 
+   * @param {ByteReader} reader 
    * @returns 
    * - `null` if not enough bytes available to read the representation
-   * - `Uint8Array` buffer of the Blob bytes
+   * - `Uint8Array` buffer of the Clob or Blob bytes
    */
-  #readBlob = function (position, length, br) {
+  #readLob = function (position, length, reader) {
     const buffer = new Uint8Array(length);
-    br.setPosition(position);
+    reader.setPosition(position);
     for (let i = 0; i < length; ++i) {
-      buffer[i] = br.nextByte();
+      buffer[i] = reader.nextByte();
 
       // not enough bytes available, propagate null
       if (buffer[i] === null) {
-        br.skipBytes(-1 * i);
+        reader.skipBytes(-1 * i);
         return null;
       }
     }
@@ -536,10 +510,9 @@ class ScalarValueReader {
     this.#textDecoder = new TextDecoder("utf-8");
 
     // initialize all functions to log an error
-    const self = this;
     this.#readScalarFuncs = new Array(IonTypes.numTypes);
     for (let i = 0; i < IonTypes.numTypes; ++i) {
-      this.#readScalarFuncs[i] = function (position, length) {
+      this.#readScalarFuncs[i] = function (_position, _length) {
         // TODO: pass the error to the caller
         const err = new Error(`ScalarValueReader called on ${IonTypes.nameFromType(i)}, a non-scalar.`);
         throw err;
@@ -554,8 +527,8 @@ class ScalarValueReader {
     this.#readScalarFuncs[IonTypes["timestamp"]] = this.#readTimestamp;
     this.#readScalarFuncs[IonTypes["symbol"]] = this.#readSymbol;
     this.#readScalarFuncs[IonTypes["string"]] = this.#readString;
-    this.#readScalarFuncs[IonTypes["clob"]] = this.#readClob;
-    this.#readScalarFuncs[IonTypes["blob"]] = this.#readBlob;
+    this.#readScalarFuncs[IonTypes["clob"]] = this.#readLob;
+    this.#readScalarFuncs[IonTypes["blob"]] = this.#readLob;
   }
 
   /**

@@ -285,7 +285,7 @@ class IonElement {
   
       // local symbol table (0x83) or shared symbol table (0x89)
       if (firstAnnotation.magnitude === 3 || firstAnnotation.magnitude === 9) {
-        // depth > 0, warn
+        // depth is greater than 0, warn
         // 2- depth
         if (this.#reference[2] > 0) {
           const err = new Error("Symbol table annotation is not at depth 0.");
@@ -488,7 +488,7 @@ class IonElement {
    * - `Number` the number of relative bytes to this element's annotations
    */
   get bytePositionOfAnnotations() {
-    if (!(this.#annotationsLength > 0)) {
+    if (this.#annotationsLength <= 0) {
       return null;
     }
 
@@ -842,7 +842,7 @@ class IonElement {
       struct.annotation = {};
     } else {
       const annotationStruct = {};
-      const nibbles = {};
+      const annot_nibbles = {};
 
       // Annotation:
       // 1        - nibbles.type                              - nibble:T (type)
@@ -854,37 +854,37 @@ class IonElement {
       //          - nibbles.annotation[i].nibbles.symbolEnd   -
       // 7,8... - value 
 
-      nibbles.type = position;
+      annot_nibbles.type = position;
       position += 1;
 
-      nibbles.wrapperLengthStart = position;
-      nibbles.wrapperLengthEnd = position + (this.#varUIntLengthWithAnnotations * 2);
+      annot_nibbles.wrapperLengthStart = position;
+      annot_nibbles.wrapperLengthEnd = position + (this.#varUIntLengthWithAnnotations * 2);
 
-      position = nibbles.wrapperLengthEnd + 1;
+      position = annot_nibbles.wrapperLengthEnd + 1;
 
-      nibbles.annotationsLengthStart = position;
-      nibbles.annotationsLengthEnd = position + (this.#annotationsVarUIntLength * 2) - 1;
-      position = nibbles.annotationsLengthEnd + 1;
+      annot_nibbles.annotationsLengthStart = position;
+      annot_nibbles.annotationsLengthEnd = position + (this.#annotationsVarUIntLength * 2) - 1;
+      position = annot_nibbles.annotationsLengthEnd + 1;
       annotationStruct.wrapperLengthValue = this.#length;
       annotationStruct.lengthValue = this.annotationsLength; // byte length of annotations
 
       const annotationList = [];
 
-      for (let i = 0; i < this.annotations.length; ++i) {
+      for (let annot_value of this.annotations) {
         const annotation = {};
 
         annotation.nibbles = {};
 
         annotation.nibbles.symbolStart = position;
-        annotation.nibbles.symbolEnd = position + (this.annotations[i].numBytesRead * 2) - 1;
+        annotation.nibbles.symbolEnd = position + (annot_value.numBytesRead * 2) - 1;
         position = annotation.nibbles.symbolEnd + 1;
 
-        annotation.symbolMagnitude = this.annotations[i].magnitude;
+        annotation.symbolMagnitude = annot_value.magnitude;
 
         annotationList.push(annotation);
       }
 
-      annotationStruct.nibbles = nibbles;
+      annotationStruct.nibbles = annot_nibbles;
       annotationStruct.annotations = annotationList;
       struct.annotation = annotationStruct;
     }

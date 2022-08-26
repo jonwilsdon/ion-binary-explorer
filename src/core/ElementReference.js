@@ -39,10 +39,7 @@ function createElementReference(streamOffset, relativeOffset, depth, bytesRemain
  * @returns {Boolean} returns true if the passed in parameter is an ElementReference array, false otherwise.
  */
 function isElementReference(elementReference) {
-  if (Array.isArray(elementReference) && elementReference.length === 7) {
-    return true;
-  }
-  return false;
+  return (Array.isArray(elementReference) && elementReference.length === 7);
 }
 
 /**

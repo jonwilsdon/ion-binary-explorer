@@ -17,8 +17,8 @@ describe('ScalarValueReader', function() {
       const byteReader = new br.ByteReader();
       assert.doesNotThrow(() => { scalarValueReader = new svr.ScalarValueReader(byteReader); });
 
-      const bufferReader = new bbr.ByteBufferReader();
-      assert.doesNotThrow(() => { scalarValueReader = new svr.ScalarValueReader(bufferReader); });
+      const byteBufferReader = new bbr.ByteBufferReader();
+      assert.doesNotThrow(() => { scalarValueReader = new svr.ScalarValueReader(byteBufferReader); });
     });
   });
   describe("read()", function () {
@@ -586,7 +586,7 @@ describe('ScalarValueReader', function() {
         //{{/w==}} (base64 representation)
         [parseInt('0xFF', 16)]
       ));
-      value = scalarValueReader.read(IonTypes["clob"],0,1);
+      value = scalarValueReader.read(IonTypes["blob"],0,1);
       assert.deepStrictEqual(value, new Uint8Array([255]));
 
       bufferReader.loadBuffer(new Uint8Array(
@@ -597,7 +597,7 @@ describe('ScalarValueReader', function() {
          parseInt('0xFF', 16), parseInt('0xFF', 16), parseInt('0xFF', 16), parseInt('0xFF', 16),
          parseInt('0xFF', 16)]
       ));
-      value = scalarValueReader.read(IonTypes["clob"],0,13);
+      value = scalarValueReader.read(IonTypes["blob"],0,13);
       assert.deepStrictEqual(value, new Uint8Array([255,255,255,255,255,255,255,255,255,255,255,255,255]));
     });
   });
