@@ -568,7 +568,7 @@ class ScalarValueReader {
   read(type, position, length) {
     if (this.#readScalarFuncs[type] === undefined) {
       // TODO: pass the error to the caller
-      const err = new Error(`ScalarValueReader read() called with non-existant type ${type}.`);
+      const err = new Error(`ScalarValueReader read() called with non-existent type ${type}.`);
       throw err;
     }
 

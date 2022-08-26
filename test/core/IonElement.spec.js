@@ -108,16 +108,16 @@ describe('IonElement', function() {
       assert.throws(() => {
         element.readTypeDescriptor(
           createReader(
-            createBufferByteReader(bvmBuf)), "bvm"),
-        Error });
+            createBufferByteReader(bvmBuf)), "bvm"); },
+        Error);
     });
     it('should fail when passed BVM context for non-BVM value', function () {
       const element = new ie.IonElement(er.createElementReference(0, 0, 0, 3, null, null, null));
       assert.throws(() => {
         element.readTypeDescriptor(
           createReader(
-            createBufferByteReader(intBuf)), "bvm"),
-        Error });
+            createBufferByteReader(intBuf)), "bvm"); },
+        Error);
     });
     it('should create the next element if there are bytes remaining', function () {
       const element = new ie.IonElement(er.createElementReference(0, 0, 0, 3, null, null, null));
@@ -321,7 +321,7 @@ describe('IonElement', function() {
         createBufferByteReader(
           // D5 80 E3 81 84 00 ({$0:name::1 byte NOP})
           [parseInt('0xD5', 16), parseInt('0x80', 16), parseInt('0xE3', 16), parseInt('0x81', 16),
-          parseInt('0x84', 16), parseInt('0x00', 16)]), "1_0");
+          parseInt('0x84', 16), parseInt('0x00', 16)]));
       let structElement = new ie.IonElement(er.createElementReference(0, 0, 0, 6, null, null, null));
       structElement.readTypeDescriptor(reader, "1_0");
       element = new ie.IonElement(er.createElementReference(0, 1, 1, 5, structElement.absoluteOffset, 

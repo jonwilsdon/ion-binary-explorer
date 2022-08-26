@@ -10,15 +10,15 @@ let bufferReader;
 describe('ScalarValueReader', function() {
   describe("constructor", function () {
     it('should require a byte reader as a parameter', function() {
-      assert.throws(() => { new svr.ScalarValueReader(); }, 
-                    "ScalarValueReader expected byteReader to be a ByteReader." );
+      assert.throws(() => { scalarValueReader = new svr.ScalarValueReader(); }, 
+                          "ScalarValueReader expected byteReader to be a ByteReader." );
     });
     it('should accept a byte reader as a parameter', function() {
       const byteReader = new br.ByteReader();
-      assert.doesNotThrow(() => { new svr.ScalarValueReader(byteReader); });
+      assert.doesNotThrow(() => { scalarValueReader = new svr.ScalarValueReader(byteReader); });
 
       const bufferReader = new bbr.ByteBufferReader();
-      assert.doesNotThrow(() => { new svr.ScalarValueReader(bufferReader); });
+      assert.doesNotThrow(() => { scalarValueReader = new svr.ScalarValueReader(bufferReader); });
     });
   });
   describe("read()", function () {
@@ -28,9 +28,9 @@ describe('ScalarValueReader', function() {
     });
     it('should fail when passed a non-existent type', function() {
       assert.throws(() => { scalarValueReader.read(19 , 0, 2); },
-                            "ScalarValueReader read() called with non-existant type 19.");
+                            "ScalarValueReader read() called with non-existent type 19.");
       assert.throws(() => { scalarValueReader.read('foo', 0, 2); },
-                            "ScalarValueReader read() called with non-existant type foo.");
+                            "ScalarValueReader read() called with non-existent type foo.");
     });
     it('should fail when passed a non-scalar type', function() {
       assert.throws(() => { scalarValueReader.read(IonTypes["null"], 0, 2); },
