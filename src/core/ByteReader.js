@@ -9,7 +9,9 @@ class ByteReader {
   /**
    * no parameters required
    */
-  constructor() {}
+  constructor() {
+    // No initialization needed
+  }
 
   /**
    * Returns the next byte.
@@ -29,7 +31,7 @@ class ByteReader {
    * @returns {null}
    * null if numBytesToSkip is beyond the current set of bytes available
    */
-  skipBytes(numBytesToSkip) {
+  skipBytes(_numBytesToSkip) {
     return null;
   }
 
@@ -40,7 +42,7 @@ class ByteReader {
    * @returns {null} 
    * null if positionToSet is beyond the current set of bytes available
    */
-  setPosition(positionToSet) {
+  setPosition(_positionToSet) {
     return null;
   }
 
@@ -52,12 +54,16 @@ class ByteReader {
    * - true if the reader is at the end of the stream
    * - false otherwise
    */
-  atEnd(position) {}
+  atEnd(_position) {
+    // stub function
+  }
 
   /**
    * Returns the size (number of bytes) of the reader.
    */
-  size() {}
+  size() {
+    // stub function
+  }
 
   /**
    * @example
@@ -115,7 +121,7 @@ class ByteReader {
     }
 
     return { numBytesRead: totalNumBytesRead, magnitude: magnitude };
-  };
+  }
 
   /**
    * @example
@@ -181,7 +187,7 @@ class ByteReader {
     }
 
     return { numBytesRead: totalNumBytesRead, magnitude: magnitude };
-  };
+  }
 
   /**
    * @example
@@ -270,7 +276,7 @@ class ByteReader {
 
     return { numBytesRead: totalNumBytesRead, magnitude: ((isNegative === true) ? -magnitude : magnitude),
             isNegative: isNegative };
-  };
+  }
   
   /**
    * @example
@@ -349,7 +355,7 @@ class ByteReader {
 
     return { numBytesRead: totalNumBytesRead, magnitude: ((isNegative === true) ? -magnitude : magnitude),
             isNegative: isNegative };
-  };
-};
+  }
+}
 
 exports.ByteReader = ByteReader;
