@@ -890,19 +890,19 @@ class IonElement {
     }
 
     const element = {};
-    const nibbles = {};
+    const element_nibbles = {};
 
-    nibbles.type = position;
+    element_nibbles.type = position;
     position += 1;
-    nibbles.lengthStart = position;
-    nibbles.lengthEnd = position + (this.varUIntLength * 2);
+    element_nibbles.lengthStart = position;
+    element_nibbles.lengthEnd = position + (this.varUIntLength * 2);
 
-    position = nibbles.lengthEnd +1;
+    position = element_nibbles.lengthEnd +1;
     if (position === struct.totalNibbles) {
       // no representation nibbles
     } else if (position < struct.totalNibbles) {
-      nibbles.representationStart = position;
-      nibbles.representationEnd = struct.totalNibbles - 1;
+      element_nibbles.representationStart = position;
+      element_nibbles.representationEnd = struct.totalNibbles - 1;
     } else {
       const err = new Error(`nibblePositionStruct has invalid position ${postion} out of ${struct.totalNibbles} for representationLength` );
       throw err;
@@ -913,7 +913,7 @@ class IonElement {
     element.lengthValue = this.lengthWithoutAnnotations - this.varUIntLength;
     element.totalLength = this.totalLength;
 
-    element.nibbles = nibbles;
+    element.nibbles = element_nibbles;
     struct.element = element;
 
     return struct;
