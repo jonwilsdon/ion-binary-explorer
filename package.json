@@ -3,13 +3,14 @@
   "version": "0.0.1",
   "description": "Explores Ion Binary files.",
   "main": "index.js",
-  "dependencies": {},
   "devDependencies": {
     "chai": "^4.3.6",
-    "mocha": "^10.0.0"
+    "mocha": "^10.0.0",
+    "nyc": "^15.1.0"
   },
   "scripts": {
-    "test": "mocha"
+    "test": "mocha",
+    "coverage": "nyc npm run test"
   },
   "mocha": {
     "check-leaks": true,
