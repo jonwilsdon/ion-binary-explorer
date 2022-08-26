@@ -404,7 +404,6 @@ class TypeDescriptorReader {
         // TODO: pass the error to the caller
         const err = new Error(`unknown context`);
         throw err;
-        break;
 
     }
     const typeAndLength = typeDescriptors[typeAndLengthByte]();
@@ -417,7 +416,6 @@ class TypeDescriptorReader {
       // TODO: pass the error to the caller
       const err = new Error(`bvm not found`);
       throw err;
-      return;
     }
 
     // Length 14 indicates that there is a VarUInt that contains the length
