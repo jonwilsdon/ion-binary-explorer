@@ -31,7 +31,7 @@ function read(buffer, offset, totalFileSize, options) {
   let nibblesToDisplay = [];
   let bufferOffset = (offset === undefined) ? 0 : offset;
 
-  let context = "unknown";
+  let context = "bvm";
   if (options.context !== undefined) {
     context = options.context;
   }
