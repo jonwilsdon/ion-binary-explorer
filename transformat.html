@@ -1,0 +1,1187 @@
+<html>
+  <head>
+    <title>Transformat</title>
+  </head>
+  <body>
+    <style>
+      #dropzone {
+        border: 2px dashed #bbb;
+        border-radius: 5px;
+        padding: 25px;
+        text-align: center;
+        color: #bbb;
+        font-size: 18px;
+      }
+
+      fieldset {
+        border: 0.2em solid #000;
+        max-width: 100%;
+      }
+
+      legend {
+        background: #000;
+        font-size: 1.3em;
+        color: #fff;
+        font-family: Impact, Haettenschweiler, 'Arial Narrow Bold', sans-serif;
+        padding: 0.3em;
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+
+<template id="transformat-selector-template">
+  <style>
+    :host {
+      display: block;
+    }
+    :host([hidden]) {
+      display: none;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+  <div id="container">
+    <span id="selector">
+      <select name="sel-selector" id="sel-selector">
+        <option value="universal" selected>universal: *</option>
+        <option value="type">type: E</option> 
+        <option value="attribute">attribute: [attr modifier value]</option>
+        <option value="descendant">descendant: E F</option>
+        <option value="child">child: E &lt; F</option>
+        <option value="relationalPseudoClass">relationalPseudoClass: E:has(rs1, rs2, ...)</option>
+      </select>
+    </span>
+    <span id="selector-options-type" class="hidden">
+      <select name="sel-type" id="sel-type">
+        <option value="null">null</option>
+        <option value="bool">bool</option>
+        <option value="int">int</option>
+        <option value="float">float</option>
+        <option value="decimal">decimal</option>
+        <option value="timestamp">timestamp</option>
+        <option value="symbol">symbol</option>
+        <option value="string">string</option>
+        <option value="clob">clob</option>
+        <option value="blob">blob</option>
+        <option value="list">list</option>
+        <option value="sexp">sexp</option>
+        <option value="struct">struct</option>
+        <option value="bvm">bvm</option>
+      </select>
+    </span>
+    <span id="selector-options-attribute" class="hidden">
+      <select name="sel-attr-attribute" id="sel-attr-attribute">
+        <option value="key">key</option>
+        <option value="value">value</option>
+        <option value="length">length (binary)</option>
+        <option value="depth">depth</option>
+        <option value="annotationCount">annotation count</option>
+        <option value="annotation">annotation</option>
+      </select>
+
+      <select name="sel-attr-modifier" id="sel-attr-modifier">
+        <option value="eq">=</option>
+        <option value="gt">&gt;</option>
+        <option value="lt">&lt;</option>
+      </select>
+
+      <input type="text" size="14" id="sel-attr-value"></input>
+    </span>
+  </div>
+</template>
+
+<template id="ion-parsed-binary-element-template">
+  <style>
+    :host {
+      display: block;
+    }
+    :host([hidden]) {
+      display: none;
+    }
+    p {
+      color: white;
+      background-color: #666;
+      padding: 0;
+    }
+    pre {
+      margin: 0;
+      font-family: Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+    }
+    .hidden {
+      display: none;
+    }
+    .highlight {
+      background-color: yellow;
+      line-height: 3em;
+    }
+    .highlightAlternate {
+      background-color: yellowgreen;
+    }
+    .container {
+      margin-bottom: 0;
+    }
+  </style>
+  <div class="container" id="container">
+    <pre><span name="flattenedRepresentation" id="slot-flattened-representation"></span></pre>
+    <pre><span name="containersClosed" id="slot-containers-closed" class="hidden"></span></pre>
+  </div>
+</template>
+
+
+<div style="max-width: 100%;">
+  <div style="position: sticky; top: 0; background: #fff;">
+    <fieldset style="padding-bottom: 0; margin-bottom: 0;">
+      <legend id="filename">file.10n</legend>
+      <output id="list"></output><br/>
+      <!--
+        option 1: any, type, attribute, has, not, nth-child
+             1-any: -
+             1-type: choose type, option 2
+             1-attribute: choose attribute, option 2
+             1-has: choose attribute, option 2
+             1-not: choose attribute, option 2
+             1-nth-chold: choose attribute, option 2
+
+        option 2: blank, list, descendant, child, next-sibling, subsequent-sibling, has, not, nth-child
+             2-blank: -
+             2-list: option 1
+             2-descendant: option 1
+             2-child: option 1
+             2-next-sibling: option 1
+             2-subsequent-sibling: option 1
+             2-has: option 2
+             2-not: option 2
+             2-nth-child: option 2
+
+        
+      -->
+      <span>Selector:</span><br/>
+      <span id="selector-1"></span>
+      <button id="selector-1-add">add</button>
+      <button id="selector-1-remove">remove</button>
+      <button id="selector-1-edit">edit</button>
+      
+      <br/><input type="checkbox" id="systemValues">exclude system values</input>
+    </fieldset>
+  </div>
+  <div>
+    <fieldset style="border-top: 0;">
+      <div style="max-width: 100%">
+        <div id="dropzone">Drop file here</div>
+        <span id="textToDisplay"></span>
+      </div>
+      <div id="content" style="word-wrap: anywhere;"></div>
+    </fieldset>
+  </div>
+</div>
+
+<script>
+  class SelectorElement extends HTMLElement {
+
+    #disableSelector = () => {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      selSelector.disabled = true;
+    };
+
+    constructor() {
+      // Always call super first in constructor
+      super();
+      
+      const template = document.getElementById('transformat-selector-template').content;
+
+      // Create a shadow root
+      this.attachShadow({mode: 'open'}); // sets and returns 'this.shadowRoot'
+
+      this.shadowRoot.appendChild(template.cloneNode(true));
+    }
+
+    connectedCallback() {
+    }
+
+    disconnectedCallback() {
+    }
+
+    adoptedCallback() {
+    }
+  
+    setSelectorType(type, options) {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      let skipDisable = false;
+      let selOptions;
+      switch (type) {
+        case 'universal':
+          // selected universal
+          selSelector.options[0].selected = true;
+          break;
+        case 'type':
+          // selected type
+          selSelector.options[1].selected = true;
+          // unhide selector-options-type
+          const selOptionsType = this.shadowRoot.getElementById("selector-options-type");
+          const selType = this.shadowRoot.getElementById("sel-type");
+          selOptionsType.classList.remove("hidden");
+          selOptions = selType.options;
+          for (let i = 0; i < selOptions.length; ++i) {
+            if (selOptions[i].value === options.type) {
+              selOptions[i].selected = true;
+              break;
+            }
+          }
+          break;
+        case 'attribute':
+          // selected attribute
+          selSelector.options[2].selected = true;
+          // unhide selector-options-attribute
+          const selOptionsAttribute = this.shadowRoot.getElementById("selector-options-attribute");
+          const selAttrAttribute = this.shadowRoot.getElementById("sel-attr-attribute");
+          const selAttrModifier = this.shadowRoot.getElementById("sel-attr-modifier");
+          const selAttrValue = this.shadowRoot.getElementById("sel-attr-value");
+          selOptionsAttribute.classList.remove("hidden");
+          selOptions = selAttrAttribute.options;
+          for (let i = 0; i < selOptions.length; ++i) {
+            if (selOptions[i].value === options.attribute) {
+              selOptions[i].selected = true;
+              break;
+            }
+          }
+          selOptions = selAttrModifier.options;
+          for (let i = 0; i < selOptions.length; ++i) {
+            if (selOptions[i].value === options.modifier) {
+              selOptions[i].selected = true;
+              break;
+            }
+          }
+          selAttrValue.value = options.input;
+          break;
+        case 'descendant':
+          selSelector.options[3].selected = true;
+          // selected descendant
+          break;
+        case 'child':
+          selSelector.options[4].selected = true;
+          // selected child
+          break;
+        case 'relationalPseudoClass':
+          selSelector.options[5].selected = true;
+          break;
+      }
+    }
+
+    getSelector() {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      switch (selSelector.options[selSelector.selectedIndex].value) {
+        case 'universal':
+          return new UniversalSelector();
+          break;
+        case 'type':
+          // get type option
+          const selType = this.shadowRoot.getElementById("sel-type");
+          return new TypeSelector(selType.options[selType.selectedIndex].value);
+          break;
+        case 'attribute':
+          // get attribute, modifier, input
+          const selAttrAttribute = this.shadowRoot.getElementById("sel-attr-attribute");
+          const selAttrModifier = this.shadowRoot.getElementById("sel-attr-modifier");
+          const selAttrValue = this.shadowRoot.getElementById("sel-attr-value");
+          return new AttributeSelector(
+            selAttrAttribute.options[selAttrAttribute.selectedIndex].value,
+            selAttrModifier.options[selAttrModifier.selectedIndex].value,
+            selAttrValue.value
+          );
+          break;
+        case 'descendant':
+          return new DescendantSelector();
+          break;
+        case 'child':
+          return new ChildSelector();
+          break;
+        case 'relationalPseudoClass':
+          return new RelationalPseudoClassSelector();
+          break;
+      }
+    }
+
+    getSelectorType() {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      return selSelector.options[selSelector.selectedIndex].value;
+    }
+
+    disableNonCombinators() {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      selSelector.options[0].disabled = true;
+      selSelector.options[1].disabled = true;
+      selSelector.options[2].disabled = true;
+      selSelector.options[5].disabled = true;
+    }
+
+    disableCombinators() {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      selSelector.options[3].disabled = true;
+      selSelector.options[4].disabled = true;
+      selSelector.options[5].disabled = true;
+    }
+
+    disableAfterSelector(callback) {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      selSelector.addEventListener('change', (event) => {
+        this.#disableSelector();
+        this.setSelectorType(this.getSelectorType(), { input: '' });
+        callback(this.getSelectorType());
+      });
+    }
+
+    disableSelectorOptions() {
+      const selSelector = this.shadowRoot.getElementById("sel-selector");
+      selSelector.disabled = true;
+    }
+  }
+
+  customElements.define('selector-element', SelectorElement);
+
+  class IonElement extends HTMLElement {
+    #nibbleStruct;
+    #showDetails = false;
+
+    displayElement = (exploreOffset, exploreDepth, exploreNibbles, exploreBits, exploreRepresentation, preamble,
+                      preamble_depth, flattenedRepresentation, containersClosed) => {
+      let container = this.shadowRoot.getElementById('container');
+      if (exploreOffset === undefined) {
+        container.classList.add('hidden');
+      } else {
+        container.classList.remove('hidden');
+      }
+      
+      let flattenedRepresentationEl = this.shadowRoot.getElementById('slot-flattened-representation');
+      let containersClosedEl = this.shadowRoot.getElementById('slot-containers-closed');
+      if (flattenedRepresentation !== undefined) {
+        flattenedRepresentationEl.innerText = exploreOffset + ' ' + exploreDepth + ' ' + preamble_depth + flattenedRepresentation;
+      }
+      if (containersClosed !== undefined) {
+        containersClosedEl.classList.remove('hidden');
+        containersClosedEl.innerText = containersClosed;
+      } else {
+        containersClosedEl.classList.add('hidden');
+      }
+    }
+
+    toggleExplore = () => {
+      this.showExplore = !this.#showDetails;
+    }
+
+    hideElement = () => {
+      let container = this.shadowRoot.getElementById('container');
+      let flattenedRep = this.shadowRoot.getElementById('slot-flattened-representation');
+      container.classList.add('hidden');
+      flattenedRep.classList.remove('highlight');
+      flattenedRep.classList.remove('highlightAlternate');
+    }
+
+    showElement = () => {
+      let container = this.shadowRoot.getElementById('container');
+      container.classList.remove('hidden');
+    }
+
+    highlightElement = () => {
+      let flattenedRep = this.shadowRoot.getElementById('slot-flattened-representation');
+      flattenedRep.classList.add('highlight');
+    }
+
+    highlightAlternateElement = () => {
+      let flattenedRep = this.shadowRoot.getElementById('slot-flattened-representation');
+      flattenedRep.classList.add('highlightAlternate');
+    }
+
+    static get observedAttributes() {
+      return ['data-text', 'showExplore'];
+    }
+
+    constructor() {
+      // Always call super first in constructor
+      super();
+      
+      const template = document.getElementById('ion-parsed-binary-element-template').content;
+
+      // Create a shadow root
+      this.attachShadow({mode: 'open'}); // sets and returns 'this.shadowRoot'
+
+      this.shadowRoot.appendChild(template.cloneNode(true));
+    }
+
+    connectedCallback() {
+    }
+
+    disconnectedCallback() {
+    }
+
+    adoptedCallback() {
+    }
+
+    attributeChangedCallback(name, oldValue, newValue) {
+      //console.log(`Custom element attributes changed ${name} ${oldValue} ${newValue}.`);
+      if (name === "showExplore") {
+        if (newValue === true) { this.showExplore(true); }
+        else { this.showExplore(false); }
+      }
+    }
+
+    set showExplore(toShowExplore) {
+      let flattenedRepresentationEl = this.shadowRoot.getElementById('slot-flattened-representation');
+      if (toShowExplore === true) {
+        this.#showDetails = true;
+        flattenedRepresentationEl.classList.add('hidden');
+      } else {
+        this.#showDetails = false;
+        flattenedRepresentationEl.classList.remove('hidden');
+      }
+    }
+
+    get nibbleStruct() {
+      return this.#nibbleStruct;
+    }
+
+    set nibbleStruct(nibbleStruct) {
+      // TODO: validate it is an object with the expected properties
+      this.#nibbleStruct = nibbleStruct;
+      if (this.#nibbleStruct === undefined) {
+        this.displayElement();
+        return;
+      }
+
+      let element = this.#nibbleStruct;
+      let pipeArray = [];
+      let lineLength = element.nibblesToDisplay;
+
+      let exploreBits = '';
+      let exploreOffset = '' + this.#nibbleStruct.offset;
+      let exploreDepth = this.#nibbleStruct.depth;
+      let exploreNibbles = '';
+      for (let i = 0; i < this.#nibbleStruct.byteNibbles.length; ++i) {
+        exploreNibbles += this.#nibbleStruct.byteNibbles[i];
+        
+        // adds spaces between bytes
+        if (i%2 === 1 && i !== 0) {
+          exploreNibbles += ' ';
+        }
+      }
+      let exploreRepresentation = '';
+
+      let preamble = '';
+      let preamble_depth = '';
+      preamble = preamble.padStart(13, ' ');
+      exploreOffset = exploreOffset.padStart(10, '0');
+
+      if (preamble_depth === 0) {
+        preamble_depth += ' ';
+      }
+      for (let i = 0; i < this.#nibbleStruct.depth; ++i) {
+        preamble_depth += ''.padStart(1, '•');
+      }
+      //if (this.#nibbleStruct.depth > 0) {
+        preamble_depth += ' ';
+      //}
+
+      let flattenedRepresentation = `${element.element.representation}`;
+      if (element.element.typeName === "nop") {
+        flattenedRepresentation = undefined;
+      } else if (element.element.typeName === "string") {
+        if (element.element.representation !== "null.string") {
+          flattenedRepresentation = `"${element.element.representation}"`;
+        }
+      } else if (element.element.typeName === "symbol") {
+        if (element.element.representation === undefined) {
+          flattenedRepresentation = `'$0'`;
+        } else if (element.element.representation !== "null.symbol") {
+          flattenedRepresentation = `'${element.element.representation}'`;
+        }
+      }
+
+      if (element.element.typeName === "bvm" || element.element.typeName === "nop") {
+        // do nothing
+      } else {
+
+        if (element.annotation.lengthValue && element.annotation.lengthValue > 0) {
+          for (let i = element.annotation.annotations.length - 1; i >= 0; --i) {
+            flattenedRepresentation = `'${element.annotation.annotations[i].symbolValue}'::${flattenedRepresentation}`;
+          } 
+        }
+
+        if (element.fieldName !== null && element.fieldName !== undefined) {
+          flattenedRepresentation = `'${element.fieldName.symbolValue}': ${flattenedRepresentation}`;
+        }
+      }
+
+      let containersClosed;
+      if (element.containersToClose !== undefined && element.containersToClose.length > 0) {
+        containersClosed = '';
+        let depth = element.depth;
+        if (element.isZeroLengthContainer === undefined) {
+          depth--;
+        }
+        for (let i = 0; i < element.containersToClose.length; ++i) {
+          let modifiedDepth = '';
+          for (let i = 0; i < depth; ++i) {
+            modifiedDepth += ''.padStart(1, '•');
+          }
+          //if (depth === 0) {
+            modifiedDepth += ' ';
+          //}
+          let endContainer;
+          if (element.containersToClose[i] === 'list') {
+            endContainer = ']';
+          } else if (element.containersToClose[i] === 'struct') {
+            endContainer = '}';
+          } else if (element.containersToClose[i] === 'sexp') {
+            endContainer = ')';
+          }
+          containersClosed += '(implicit) ' + depth + ' ' + modifiedDepth + endContainer;
+          if (i < element.containersToClose.length - 1) {
+            containersClosed += '\n';
+          }
+          depth--;
+        }
+      }
+
+      this.displayElement(exploreOffset, exploreDepth, exploreNibbles, exploreBits, exploreRepresentation, 
+                          preamble, preamble_depth, flattenedRepresentation, containersClosed);
+    }
+  }
+  customElements.define('ion-element', IonElement);
+
+  let dropZone = document.getElementById('dropzone');
+  let textToDisplay = document.getElementById('textToDisplay');
+  let filenameLegend = document.getElementById('filename');
+  
+  let rules = [];
+  onReselect = () => {
+    let parents = [];
+
+    for (let i = 0; i < kNumElements; ++i) {
+      let el = ionElements[i];
+      let nibbleStruct = el.nibbleStruct;
+
+      if (nibbleStruct === undefined) { break; }
+
+      if (parents.length > 0) {
+        while (parents.length > 0 && parents[parents.length-1].nibbleStruct.depth > nibbleStruct.depth) {
+          parents.pop();
+        }
+
+        // if the last element on the parents stack is a parent of this element, push this element
+        if (parents[parents.length-1].nibbleStruct.depth < nibbleStruct.depth) {
+          parents.push(el);
+        // if the last element on the parents stack is a sibling of this element, replace it
+        } else if (parents[parents.length-1].nibbleStruct.depth === nibbleStruct.depth) {
+          parents[parents.length-1] = el;
+        } else {
+          throw new Error(`This shouldn't happen. ${parents} ${nibbleStruct}`);
+        }
+      } else {
+        parents.push(el);
+      }
+
+      el.hideElement();
+
+      const excludeSystemValues = document.getElementById("systemValues").checked;
+      if (excludeSystemValues && parents[0].nibbleStruct.isSystemElement === true) {
+        continue;
+      }
+      for (const rule of rules) {
+        let result = rule.evaluate(el, parents);
+        if (result.matched === true) {
+          el.showElement();
+          if (result.relational !== undefined) {
+            result.relational.showElement();
+            result.relational.highlightElement();
+            let showElements = false;
+            let currentIndex = 0;
+            let currentElement = ionElements[currentIndex];
+            while (currentElement !== el) {
+              if (showElements === true) {
+                currentElement.showElement();
+              }
+              if (currentElement === result.relational) {
+                showElements = true;
+              }
+              currentIndex++;
+              currentElement = ionElements[currentIndex];
+            }
+            el.highlightAlternateElement();
+          } else if (result.indirect === false) {
+            el.highlightElement();
+          }
+        }
+      }
+    }
+  };
+
+  class RuleDisplay {
+    #ruleSpan;
+    #editButton;
+    #addButton;
+    #removeButton;
+    #selectors;
+    #selectorElements;
+    #editing;
+
+    #addSelector = (selector) => {
+      this.#selectors.push(selector);
+    };
+
+    #updateRuleDisplay = () => {
+      this.#ruleSpan.innerText = '';
+      for (let i = 0; i < this.#selectors.length; ++i) {
+        this.#ruleSpan.innerText += this.#selectors[i].textRepresentation;
+      }
+    };
+
+    #addButtonPressed = () => {
+      const selectorEl = document.createElement('selector-element');
+      selectorEl.disableAfterSelector(this.#selectorChosen);
+      this.#selectorElements.push(selectorEl);
+      this.#ruleSpan.appendChild(selectorEl);
+      return selectorEl;
+    };
+
+    #removeButtonPressed = () => {
+      let selectorEl = this.#selectorElements.pop();
+      this.#ruleSpan.removeChild(selectorEl);
+      if (this.#selectorElements.length === 0) {
+        this.#addButtonPressed();
+        this.#selectorElements[0].disableCombinators();
+      } else {
+        let lastSelectorType = this.#selectorElements[this.#selectorElements.length-1].getSelectorType();
+        if (lastSelectorType === "descendant" || lastSelectorType === "child") {
+          selectorEl = this.#selectorElements.pop();
+          this.#ruleSpan.removeChild(selectorEl);
+          lastSelectorType = this.#selectorElements[this.#selectorElements.length-1].getSelectorType();
+          if (lastSelectorType === "relationalPseudoClass") {
+            selectorEl = this.#selectorElements.pop();
+            this.#ruleSpan.removeChild(selectorEl);
+          }
+        }
+      }
+    };
+
+    #selectorChosen = (selectorType) => {
+      if (selectorType === "descendant" || selectorType === "child") {
+        let selectorEl = this.#addButtonPressed();
+        selectorEl.disableCombinators();
+      } else if (selectorType === "relationalPseudoClass") {
+        let selectorEl = this.#addButtonPressed();
+        selectorEl.disableNonCombinators();
+      }
+    };
+
+    #editButtonPressed = () => {
+      if (this.#editing === false) {
+        this.#editButton.innerText = 'save';
+        this.#addButton.classList.remove("hidden");
+        this.#removeButton.classList.remove("hidden");
+        this.#ruleSpan.innerText = '';
+        this.#selectorElements = [];
+
+        for (let i = 0; i < this.#selectors.length; ++i) {
+          const selector = this.#selectors[i];
+
+          const selectorEl = document.createElement('selector-element');
+          this.#selectorElements.push(selectorEl);
+          selectorEl.setSelectorType(selector.type, selector.options);
+          if (this.#selectors.length === 1 && selector.type === "universal") {
+            selectorEl.disableCombinators();
+            selectorEl.disableAfterSelector(this.#selectorChosen);
+          } else {
+            selectorEl.disableSelectorOptions();
+          }
+
+          this.#ruleSpan.appendChild(selectorEl);
+        }
+
+        this.#editing = true;
+      } else {
+        this.#selectors = [];
+        for (let i = 0; i < this.#selectorElements.length; ++i) {
+          this.#addSelector(this.#selectorElements[i].getSelector());
+        }
+        this.#addButton.classList.add("hidden");
+        this.#removeButton.classList.add("hidden");
+        this.#editButton.innerText = 'edit';
+        this.#updateRuleDisplay();
+        this.#editing = false;
+
+        rules = [];
+        rules.push(this.selectorRule);
+        onReselect();
+      }
+    };
+
+    constructor(ruleSpan, editButton, addButton, removeButton) {
+      this.#selectors = [];
+      this.#ruleSpan = ruleSpan;
+      this.#editButton = editButton;
+      this.#addButton = addButton;
+      this.#removeButton = removeButton;
+      this.#editing = false;
+
+      this.#addSelector(new UniversalSelector());
+      this.update();
+      this.#addButton.classList.add("hidden");
+      this.#removeButton.classList.add("hidden");
+      this.#addButton.addEventListener('click', this.#addButtonPressed);
+      this.#removeButton.addEventListener('click', this.#removeButtonPressed);
+      this.#editButton.addEventListener('click', this.#editButtonPressed);
+    }
+
+    update() {
+      this.#updateRuleDisplay();
+    }
+
+    get selectorRule() {
+      return new SelectorRule(...this.#selectors);
+    }
+  }
+
+  class SelectorRule {
+    #selectors;
+    #containerDepth;
+    #depthToMatch;
+
+    #reset = () => {
+      this.#selectors = [];
+      this.#containerDepth = undefined;
+      this.#depthToMatch = 0;
+    }
+
+    constructor() {
+      this.#reset();
+      let currSubSelector = -1;
+      for (let i = 0; i < arguments.length; ++i) {
+
+
+        if (currSubSelector === -1 ||
+            arguments[i] instanceof DescendantSelector ||
+            arguments[i] instanceof ChildSelector) {
+          this.#selectors.push({ relativeDepth: undefined, hasRelationalPseudoClass: false, match: [] });
+          currSubSelector++;
+        }
+
+        if (arguments[i] instanceof DescendantSelector) {
+          this.#selectors[currSubSelector-1].relativeDepth = " ";
+          this.#selectors[currSubSelector-1].match.push(arguments[i]);
+        } else if (arguments[i] instanceof ChildSelector) {
+          this.#selectors[currSubSelector-1].relativeDepth = ">";
+          this.#selectors[currSubSelector-1].match.push(arguments[i]);
+        } else {
+          if (arguments[i] instanceof RelationalPseudoClassSelector) {
+            this.#selectors[currSubSelector].hasRelationaLPseudoClass = true;
+          }
+          this.#selectors[currSubSelector].match.push(arguments[i]);
+        }
+      }
+    }
+
+    evaluate(element, parents) {
+      if (this.#selectors.length === 0) {
+        throw new Error(`No selectors in rule!`);
+      }
+      
+      if (this.#containerDepth !== undefined) {
+        // a parent container matches the type
+        if (this.#containerDepth < element.nibbleStruct.depth) {
+          // this space left intentionally blank
+        // unset the parent container match depth
+        } else {
+          this.#containerDepth = undefined;
+        }
+      }
+      
+      let allMatched = true;
+      let lastMatchDepth = element.nibbleStruct.depth;
+      let relationalSelector = undefined;
+
+      // look at the selector for the element we are interested in (the last selector)
+      let selector = this.#selectors[(this.#selectors.length-1)];
+      for (let i = 0; i < selector.match.length; ++i) {
+        if (selector.match[i].visit(element) === false) {
+          allMatched = false;
+          break;
+        }
+      }
+
+      // if there are not enough parents to match
+      if (parents.length < this.#selectors.length-1) {
+        allMatched = false;
+      }
+
+      if (allMatched === true) {
+        // traverse through the remaining selectors backwards
+        for (let i = 1; i < this.#selectors.length; ++i) {
+          allMatched = false; 
+          selector = this.#selectors[(this.#selectors.length-1) - i];
+            
+          // child selector
+          if (selector.relativeDepth === ">") {
+
+            for (let j = 0; j < parents.length; ++j) {
+              let parent = parents[(parents.length-1)-j];
+              // can only match direct parent element
+              if (parent.nibbleStruct.depth === lastMatchDepth-1) {
+                let allTrue = true;
+                for (let k = 0; k < selector.match.length; ++k) {
+                  if (selector.match[k].visit(parent) === false) {
+                    allTrue = false;
+                    break;
+                  }
+                }
+                if (allTrue === true) {
+                  allMatched = true;
+                  lastMatchDepth = parent.nibbleStruct.depth;
+                  if (selector.hasRelationaLPseudoClass === true) {
+                    relationalSelector = parent;
+                  }
+                  break;
+                }
+              }
+            }
+
+          // descendant selector
+          } else if (selector.relativeDepth === " ") {
+
+            for (let j = 0; j < parents.length; ++j) {
+              let parent = parents[(parents.length-1)-j];
+              // can match any parent element
+              if (parent.nibbleStruct.depth < lastMatchDepth) {
+                let allTrue = true;
+                for (let k = 0; k < selector.match.length; ++k) {
+                  if (selector.match[k].visit(parent) === false) {
+                    allTrue = false;
+                    break;
+                  }
+                }
+                if (allTrue === true) {
+                  allMatched = true;
+                  lastMatchDepth = parent.nibbleStruct.depth;
+                  if (selector.hasRelationaLPseudoClass === true) {
+                    relationalSelector = parent;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+
+          if (allMatched === false) {
+            break;
+          }
+        }
+      }
+
+      if (allMatched === true) {
+        // TODO: this should always be true at this point?
+        if (this.#containerDepth === undefined) {
+          if (relationalSelector !== undefined) {
+            this.#containerDepth = relationalSelector.nibbleStruct.depth;
+          } else {
+            element.nibbleStruct.depth;
+          }
+        }
+        return { matched: true, indirect: false, relational: relationalSelector };
+      } else if (this.#containerDepth !== undefined) {
+        return { matched: true, indirect: true, relational: relationalSelector };
+      }
+
+      return { matched:false, indirect: false, relational: relationalSelector };
+    }
+  }
+
+  class UniversalSelector {
+    constructor() {}
+
+    visit(element) {
+      return true;
+    }
+
+    get textRepresentation() {
+      return "*";
+    }
+
+    get type() {
+      return "universal";
+    }
+
+    get options() {
+      return {};
+    }
+  }
+
+  class TypeSelector {
+    #type = undefined;
+
+    constructor(type) {
+      this.#type = type;
+    }
+
+    visit(element) {
+      let matches = false;
+      let elementType = element.nibbleStruct.element.typeName;
+
+      if (elementType === this.#type) {
+        return true;
+      } else if ((elementType === 'int+' || elementType === 'int-') && this.#type === 'int') {
+        return true;
+      }
+      return false;
+    }
+
+    get textRepresentation() {
+      return this.#type;
+    }
+
+    get type() {
+      return "type";
+    }
+
+    get options() {
+      return { type: this.#type };
+    }
+  }
+
+  class AttributeSelector {
+    #attribute = undefined;
+    #modifier = undefined;
+    #input = undefined;
+
+    constructor(attribute, modifier, input) {
+      this.#attribute = attribute;
+      this.#modifier = modifier;
+      this.#input = input;
+    }
+
+    visit(element) {
+      let matches = false;
+      let struct = element.nibbleStruct;
+      let innerEl = element.nibbleStruct.element;
+
+      switch (this.#attribute) {
+        case 'key':
+          if (struct.fieldName === null) { break; }
+          if (this.#modifier === 'eq' && struct.fieldName.symbolValue == this.#input) { return true; }
+          break;
+        case 'value':
+          if (innerEl.representation === null) { break; }
+          if (this.#modifier === 'eq' && innerEl.representation == this.#input) { return true; }
+          if (this.#modifier === 'gt' && innerEl.representation > +this.#input) { return true; }
+          if (this.#modifier === 'lt' && innerEl.representation < +this.#input) { return true; }
+          break;
+        case 'length':
+          if (this.#modifier === 'eq' && innerEl.totalLength === +this.#input) { return true; }
+          else if (this.#modifier === 'gt' && innerEl.totalLength > +this.#input) { return true; }
+          else if (this.#modifier === 'lt' && innerEl.totalLength < +this.#input) { return true; }
+          break;
+        case 'depth':
+          if (this.#modifier === 'eq' && struct.depth === +this.#input) { return true; }
+          else if (this.#modifier === 'gt' && struct.depth > +this.#input) { return true; }
+          else if (this.#modifier === 'lt' && struct.depth < +this.#input) { return true; }
+          break;
+        case 'annotationCount':
+          if (this.#modifier === 'eq' && struct.annotation.annotations && 
+              struct.annotation.annotations.length === +this.#input ) { return true; }
+          else if (this.#modifier === 'gt' && struct.annotation.annotations && 
+                   struct.annotation.annotations.length > +this.#input ) { return true; }
+          else if (this.#modifier === 'lt' && struct.annotation.annotations && 
+                   struct.annotation.annotations.length < +this.#input ) { return true; }
+          break;
+        case 'annotation':
+          if (this.#modifier === 'eq' && struct.annotation !== undefined &&
+              struct.annotation.annotations !== undefined) {
+            for (let i = 0; i < struct.annotation.annotations.length; ++i) {
+              if (struct.annotation.annotations[i].symbolValue === this.#input) { return true; }
+            }
+          }
+          break;
+        default:
+          throw new Error(`This shouldn't happen ${attribute}`);
+      }
+
+      return false;
+    }
+
+    get textRepresentation() {
+      let modifierText;
+      switch (this.#modifier) {
+        case 'eq':
+          modifierText = '=';
+          break;
+        case 'gt':
+          modifierText = '>';
+          break;
+        case 'lt':
+          modifierText = '<';
+          break;
+      }
+      return `[${this.#attribute} ${modifierText} ${this.#input}]`;
+    }
+
+    get type() {
+      return "attribute";
+    }
+
+    get options() {
+      return {
+        'attribute': this.#attribute,
+        'modifier': this.#modifier,
+        'input': this.#input 
+      };
+    }
+  }
+
+  class DescendantSelector {
+    constructor () {}
+    visit(element) { return true; }
+    get textRepresentation() {
+      return ' ';
+    }
+    get type() {
+      return "descendant";
+    }
+    get options() {
+      return {};
+    }
+  }
+
+  class ChildSelector {
+    constructor () {}
+    visit(element) { return true; }
+    get textRepresentation() {
+      return ' > ';
+    }
+    get type() {
+      return "child";
+    }
+    get options() {
+      return {};
+    }
+  }
+
+  class RelationalPseudoClassSelector {
+    constructor () {}
+    visit(element) { return true; }
+    get textRepresentation() {
+      return ":has(";
+    }
+    get type() {
+      return "relationalPseudoClass";
+    }
+    get options() {
+      return {};
+    }
+  }
+
+  let ruleDisplay = new RuleDisplay(document.getElementById('selector-1'),
+                                    document.getElementById('selector-1-edit'),
+                                    document.getElementById('selector-1-add'),
+                                    document.getElementById('selector-1-remove'));
+
+  rules.push(ruleDisplay.selectorRule);
+
+  let ionElements = [];
+  const kNumElements = 30000;
+  for (let i = 0; i < kNumElements; ++i) {
+    let element = document.createElement('ion-element');
+    element.setAttribute("id", `ionElement-${i}`);
+    textToDisplay.appendChild(element);
+    ionElements.push(element);
+    element.displayElement();
+  }
+
+  let t0;
+  let t1;
+  let currentFile = '';
+
+  let bytesInFile = 0;
+  let passOneBytesRead = 0;
+  let passOnePercent = 0;
+  let passOneMs = 0;
+  let passTwoBytesRead = 0;
+  let passTwoPercent = 0;
+  let passTwoMs = 0;
+  let finishedReading = false;
+  let workerCoordinator = new Worker('worker-coordinator.js');
+
+  filenameLegend.innerText = 'No binary loaded';
+  dropZone.style.display = 'block';
+  list.innerText = '';
+
+  workerCoordinator.onmessage = (event) => {
+    switch (event.data.action) {
+      case 'nibblesToDisplay':
+        for (let i = 0; i < kNumElements; ++i) {
+          let el = ionElements[i];
+          if (i >= event.data.nibbles.length) { break; }
+          el.nibbleStruct = event.data.nibbles[i];
+        }
+        onReselect();
+        break;
+      case 'topLevelSliceCompleted':
+        passOneBytesRead += event.data.bytesRead;
+        passOnePercent = ((passOneBytesRead/bytesInFile) * 100).toFixed(1);
+        list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+        break;
+      case 'topLevelValuesRead':
+        passOnePercent = 100;
+        passOneMs = event.data.msTaken.toFixed(1);
+        list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+        break;
+      case 'loaded':
+        bytesInFile = event.data.fileStats;
+        list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+        break;
+      case 'workerReaderFinishedBuffer':
+        console.log(`workerReaderFinishedBuffer ${finishedReading} ${event.data.size} ${passTwoBytesRead}`);
+        if (finishedReading === false) {
+          passTwoBytesRead += event.data.size;
+          passTwoPercent = ((passTwoBytesRead/bytesInFile) * 100).toFixed(1);
+          list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+        }
+        break;
+      case 'workerReaderTiming':
+        if (finishedReading === false) {
+          passTwoMs = event.data.msTaken.toFixed(1);
+          list.innerText = `File Size: ${bytesInFile} bytes | Pass One: ${passOnePercent}% (${passOneMs} ms) | Pass Two: ${passTwoPercent}% (${passTwoMs} ms)`;
+          finishedReading = true;
+        }
+        break;
+      default:
+        console.log(`||main-thread|| received unknown message from worker-coordinator ${JSON.stringify(event.data)}`);
+    }
+  };
+
+  async function handleFileSelect(evt) {
+    evt.stopPropagation();
+    evt.preventDefault();
+
+    let files = evt.dataTransfer.files;
+    let file = files[0];
+    filenameLegend.innerText = file.name;
+    dropZone.style.display = 'none';
+    list.innerText = ``;
+    currentFile = file;
+    t0 = performance.now();
+    workerCoordinator.postMessage({'action': 'loadFile', 'file': file});
+  }
+
+  function handleDragOver(evt) {
+    evt.stopPropagation();
+    evt.preventDefault();
+    evt.dataTransfer.dropEffect = 'copy';
+  }
+
+  dropZone.addEventListener('dragover', handleDragOver, false);
+  dropZone.addEventListener('drop', handleFileSelect, false);
+</script>
+
+  </body>
+</html>

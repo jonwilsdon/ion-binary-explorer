@@ -3,7 +3,7 @@
 importScripts('js/bite.js');
 
 const BYTES_TO_BUFFER = 35000000;
-const INSPECT_BYTES = 2000;
+const INSPECT_BYTES = 300000;
 const NUMBER_OF_WORKERS = 3;
 const VERIFY = false;
 
@@ -609,7 +609,7 @@ onmessage = (event) => {
       console.log(`bsr_toplevel fillBuffer 0 (loadFile)`);
       bsr_toplevel.fillBuffer(4, 0).then(value => {
         let buf = bsr_toplevel.biBuffer;
-        sendBufferToWorker(topLevelWorker, buf, 0, {"context": "unknown"});
+        sendBufferToWorker(topLevelWorker, buf, 0, {"context": "bvm"});
       });
 
       // start worker-reader
