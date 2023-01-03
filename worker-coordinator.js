@@ -609,7 +609,7 @@ onmessage = (event) => {
       console.log(`bsr_toplevel fillBuffer 0 (loadFile)`);
       bsr_toplevel.fillBuffer(4, 0).then(value => {
         let buf = bsr_toplevel.biBuffer;
-        sendBufferToWorker(topLevelWorker, buf, 0, {"context": "bvm"});
+        sendBufferToWorker(topLevelWorker, buf, 0, {"context": "unknown"});
       });
 
       // start worker-reader
