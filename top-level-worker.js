@@ -105,7 +105,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
             longElementStack.push(elementStack[i].reference());
           }
           if (verify === true) {
-            verifier.verifyStack(longElementStack, true);
+            Verifier.verifyStack(longElementStack, true);
             verifier.atEnd(currentElement.totalLength);
           }
         }
@@ -212,7 +212,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
       }
       if (verify === true) {
         verifier.verifyElement(elemDef);
-        verifier.verifyStack(referenceArrayFromStack(elementStack, elemDef[2]));
+        Verifier.verifyStack(referenceArrayFromStack(elementStack, elemDef[2]));
       }
       currentElement.repurpose(elemDef);
       if (isFromLongElement !== null && isFromLongElement[elemDef[2]] === true) {
@@ -259,7 +259,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
         }
         if (verify === true) {
           verifier.verifyElement(elemDef);
-          verifier.verifyStack(referenceArrayFromStack(elementStack, elemDef[2]));
+          Verifier.verifyStack(referenceArrayFromStack(elementStack, elemDef[2]));
         }
         currentElement.repurpose(elemDef);
       }
@@ -274,7 +274,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
         longElementStack.push(elementStack[i].reference());
       }
       if (verify === true) {
-        verifier.verifyStack(longElementStack, true);
+        Verifier.verifyStack(longElementStack, true);
         verifier.atEnd(currentElement.totalLength);
       }
       break;
@@ -287,7 +287,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
       }
       if (verify === true) {
         verifier.verifyElement(currentElement.nextElementReference);
-        verifier.verifyStack(referenceArrayFromStack(elementStack, currentElement.depth));
+        Verifier.verifyStack(referenceArrayFromStack(elementStack, currentElement.depth));
       }
       currentElement.repurpose(currentElement.nextElementReference);
     // contains no elements, last at depth
@@ -308,7 +308,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
             longElementStack.push(elementStack[i].reference());
           }
           if (verify === true) {
-            verifier.verifyStack(longElementStack, true);
+            Verifier.verifyStack(longElementStack, true);
             verifier.atEnd(currentElement.totalLength);
           }
           break;
@@ -346,7 +346,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
 
         if (verify === true) {
           verifier.verifyElement(currentElement.nextElementReference);
-          verifier.verifyStack(referenceArrayFromStack(elementStack, currentElement.depth));
+          Verifier.verifyStack(referenceArrayFromStack(elementStack, currentElement.depth));
         }
         if ((currentElement.nextElementReference[0]+currentElement.nextElementReference[1]-offsetInFile) > bufferReader.size) {
           throw new Error(`Ding!`);
@@ -390,7 +390,7 @@ function read(buffer, offsetInFile, totalFileSize, options) {
           longElementStack.push(elementStack[i].reference());
         }
         if (verify === true) {
-          verifier.verifyStack(longElementStack, true);
+          Verifier.verifyStack(longElementStack, true);
           verifier.atEnd(currentElement.totalLength);
         }
 

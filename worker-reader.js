@@ -84,7 +84,7 @@ function readAll(buffer, offset, totalFileSize, options) {
                             bytesRead, true, true);
   }
 
-  let context = "unknown";
+  let context = "bvm";
   if (options.context !== undefined) {
     context = options.context;
   }
