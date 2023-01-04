@@ -164,8 +164,10 @@
       <button id="selector-1-add">add</button>
       <button id="selector-1-remove">remove</button>
       <button id="selector-1-edit">edit</button>
-      
+      <span id="resultCount"></span>
+
       <br/><input type="checkbox" id="systemValues">exclude system values</input>
+      
     </fieldset>
   </div>
   <div>
@@ -558,6 +560,7 @@
   let rules = [];
   onReselect = () => {
     let parents = [];
+    let numMatchedElements = 0;
 
     for (let i = 0; i < kNumElements; ++i) {
       let el = ionElements[i];
@@ -596,6 +599,7 @@
           if (result.relational !== undefined) {
             result.relational.showElement();
             result.relational.highlightElement();
+            numMatchedElements++;
             let showElements = false;
             let currentIndex = 0;
             let currentElement = ionElements[currentIndex];
@@ -612,10 +616,14 @@
             el.highlightAlternateElement();
           } else if (result.indirect === false) {
             el.highlightElement();
+            numMatchedElements++;
           }
         }
       }
     }
+  
+    let resultCount = document.getElementById('resultCount');
+    resultCount.innerText = ` ${numMatchedElements} results`;
   };
 
   class RuleDisplay {
@@ -626,6 +634,7 @@
     #selectors;
     #selectorElements;
     #editing;
+    #resultCount;
 
     #addSelector = (selector) => {
       this.#selectors.push(selector);
@@ -633,9 +642,12 @@
 
     #updateRuleDisplay = () => {
       this.#ruleSpan.innerText = '';
+      let hasRelationaLPseudoClass = false;
       for (let i = 0; i < this.#selectors.length; ++i) {
         this.#ruleSpan.innerText += this.#selectors[i].textRepresentation;
+        if (this.#selectors[i].type === "relationalPseudoClass") { hasRelationaLPseudoClass = true; }
       }
+      if (hasRelationaLPseudoClass) { this.#ruleSpan.innerText += ')'; }
     };
 
     #addButtonPressed = () => {
@@ -683,6 +695,7 @@
         this.#removeButton.classList.remove("hidden");
         this.#ruleSpan.innerText = '';
         this.#selectorElements = [];
+        this.#resultCount.innerText = '';
 
         for (let i = 0; i < this.#selectors.length; ++i) {
           const selector = this.#selectors[i];
@@ -718,12 +731,13 @@
       }
     };
 
-    constructor(ruleSpan, editButton, addButton, removeButton) {
+    constructor(ruleSpan, editButton, addButton, removeButton, resultCount) {
       this.#selectors = [];
       this.#ruleSpan = ruleSpan;
       this.#editButton = editButton;
       this.#addButton = addButton;
       this.#removeButton = removeButton;
+      this.#resultCount = resultCount;
       this.#editing = false;
 
       this.#addSelector(new UniversalSelector());
@@ -733,6 +747,7 @@
       this.#addButton.addEventListener('click', this.#addButtonPressed);
       this.#removeButton.addEventListener('click', this.#removeButtonPressed);
       this.#editButton.addEventListener('click', this.#editButtonPressed);
+      this.#resultCount.innerText = '';
     }
 
     update() {
@@ -885,7 +900,7 @@
           if (relationalSelector !== undefined) {
             this.#containerDepth = relationalSelector.nibbleStruct.depth;
           } else {
-            element.nibbleStruct.depth;
+            this.#containerDepth = element.nibbleStruct.depth;
           }
         }
         return { matched: true, indirect: false, relational: relationalSelector };
@@ -1083,7 +1098,8 @@
   let ruleDisplay = new RuleDisplay(document.getElementById('selector-1'),
                                     document.getElementById('selector-1-edit'),
                                     document.getElementById('selector-1-add'),
-                                    document.getElementById('selector-1-remove'));
+                                    document.getElementById('selector-1-remove'),
+                                    document.getElementById('resultCount'));
 
   rules.push(ruleDisplay.selectorRule);
 
