@@ -556,6 +556,8 @@
   let dropZone = document.getElementById('dropzone');
   let textToDisplay = document.getElementById('textToDisplay');
   let filenameLegend = document.getElementById('filename');
+
+  let totalBytesLoaded = 0;
   
   let rules = [];
   onReselect = () => {
@@ -623,7 +625,7 @@
     }
   
     let resultCount = document.getElementById('resultCount');
-    resultCount.innerText = ` ${numMatchedElements} results`;
+    resultCount.innerText = ` ${numMatchedElements} results from first ${totalBytesLoaded} bytes.`;
   };
 
   class RuleDisplay {
@@ -1138,6 +1140,7 @@
           let el = ionElements[i];
           if (i >= event.data.nibbles.length) { break; }
           el.nibbleStruct = event.data.nibbles[i];
+          totalBytesLoaded = event.data.nibbles[i].offset + event.data.nibbles[i].element.totalLength;
         }
         onReselect();
         break;
